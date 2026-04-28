@@ -1,0 +1,125 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 218 31% 15%;
+    /* #1A2332 */
+    --foreground: 0 0% 100%;
+    /* #FFFFFF */
+    --card: 210 29% 24%;
+    /* #2C3E50 */
+    --card-foreground: 0 0% 100%;
+    --primary: 189 100% 50%;
+    /* #00D9FF */
+    --primary-foreground: 218 31% 10%;
+    /* Dark text on neon */
+    --secondary: 210 29% 24%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 210 29% 20%;
+    --muted-foreground: 210 20% 70%;
+    --accent: 189 100% 50%;
+    --accent-foreground: 218 31% 10%;
+    --border: 210 29% 30%;
+    --input: 210 29% 24%;
+    --ring: 189 100% 50%;
+    --radius: 0.75rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground min-h-dvh antialiased font-sans;
+  }
+
+  /* Slim global scrollbars (Firefox) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(215 14% 52%) hsl(var(--background));
+  }
+
+  /* Slim global scrollbars (Chrome, Safari, Edge) */
+  *::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: hsl(215 14% 52%);
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(215 14% 60%);
+  }
+
+  *::-webkit-scrollbar-button {
+    display: none;
+    height: 0;
+    width: 0;
+  }
+}
+
+@layer components {
+  .section-label {
+    @apply font-mono text-xs uppercase tracking-wider text-primary;
+  }
+
+  .overline-text {
+    @apply font-mono text-xs uppercase tracking-wider text-muted-foreground;
+  }
+}
+
+@layer utilities {
+  .bg-grid-pattern {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.3) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.3) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .card-glow-line {
+    @apply absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/80 to-transparent opacity-0 transition-opacity duration-300;
+  }
+
+  .group:hover .card-glow-line {
+    @apply opacity-100;
+  }
+
+  .neon-glow {
+    @apply border border-primary/50 shadow-[0_0_10px_rgba(0,217,255,0.2)];
+  }
+
+  .neon-text {
+    @apply text-primary drop-shadow-[0_0_5px_rgba(0,217,255,0.5)];
+  }
+}
+
+/* Embedded Mode Styles for SSO Floating Widget */
+.chat-layout--embedded {
+  /* Customize scrollbars for compact view */
+}
+
+.chat-layout--embedded *::-webkit-scrollbar {
+  width: 4px;
+}
+
+.chat-layout--embedded *::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 10px;
+}
+
+.chat-layout--embedded *::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+
+/* Layout handled by React in isErpWidget mode */
