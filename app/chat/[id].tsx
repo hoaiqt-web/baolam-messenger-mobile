@@ -150,6 +150,7 @@ export default function ChatScreen() {
   const chatTitle = (name as string) || 'Tin nhắn';
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [replyTarget, setReplyTarget] = useState<any>(null);
+  const [menuTarget, setMenuTarget] = useState<any>(null);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
 
@@ -392,42 +393,9 @@ export default function ChatScreen() {
   };
 
   const handleLongPressMessage = (item: any) => {
-    const senderId = item.sender_id || item.senderId || item.sender?.id;
-    const isMine = senderId === currentUserId;
     const isRecalled = item.isRecalled || item.is_recalled;
     if (isRecalled) return;
-
-    const hasBody = Boolean(String(item.body || '').trim());
-
-    const options: { text: string; onPress: () => void; style?: 'cancel' | 'destructive' }[] = [
-      // Quick reactions
-      { text: '👍', onPress: () => handleToggleReaction(item, '👍') },
-      { text: '❤️', onPress: () => handleToggleReaction(item, '❤️') },
-      { text: '😂', onPress: () => handleToggleReaction(item, '😂') },
-      { text: '↩️ Trả lời', onPress: () => setReplyTarget(item) },
-    ];
-    if (hasBody) {
-      options.push({
-        text: '📋 Sao chép',
-        onPress: () => {
-          try {
-            const { Clipboard } = require('react-native');
-            Clipboard.setString(item.body || '');
-          } catch {
-            // Clipboard may not be available
-          }
-        },
-      });
-    }
-    if (isMine) {
-      options.push({
-        text: '🗑️ Thu hồi',
-        style: 'destructive',
-        onPress: () => handleRecall(item),
-      });
-    }
-    options.push({ text: 'Đóng', onPress: () => {}, style: 'cancel' });
-    Alert.alert('Tùy chọn', undefined, options);
+    setMenuTarget(item);
   };
 
   const handleSend = async () => {
@@ -991,6 +959,97 @@ export default function ChatScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Message actions bottom sheet */}
+      <Modal
+        visible={!!menuTarget}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMenuTarget(null)}
+      >
+        <TouchableOpacity
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setMenuTarget(null)}
+        >
+          <View style={styles.menuSheet}>
+            {/* Quick reactions row */}
+            <View style={styles.menuReactionsRow}>
+              {['👍', '❤️', '😂', '😢', '😡', '🎉'].map((emoji) => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={[
+                    styles.menuReactionBtn,
+                    menuTarget?.user_reaction === emoji && styles.menuReactionBtnActive,
+                  ]}
+                  onPress={() => {
+                    handleToggleReaction(menuTarget, emoji);
+                    setMenuTarget(null);
+                  }}
+                >
+                  <Text style={styles.menuReactionEmoji}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.menuDivider} />
+
+            {/* Action buttons */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setReplyTarget(menuTarget);
+                setMenuTarget(null);
+              }}
+            >
+              <Text style={styles.menuItemIcon}>↩️</Text>
+              <Text style={styles.menuItemText}>Trả lời</Text>
+            </TouchableOpacity>
+
+            {Boolean(String(menuTarget?.body || '').trim()) && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  try {
+                    const { Clipboard } = require('react-native');
+                    Clipboard.setString(menuTarget?.body || '');
+                  } catch {}
+                  setMenuTarget(null);
+                }}
+              >
+                <Text style={styles.menuItemIcon}>📋</Text>
+                <Text style={styles.menuItemText}>Sao chép</Text>
+              </TouchableOpacity>
+            )}
+
+            {(() => {
+              const senderId = menuTarget?.sender_id || menuTarget?.senderId || menuTarget?.sender?.id;
+              return senderId === currentUserId ? (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    handleRecall(menuTarget);
+                    setMenuTarget(null);
+                  }}
+                >
+                  <Text style={styles.menuItemIcon}>🗑️</Text>
+                  <Text style={[styles.menuItemText, styles.menuItemTextDanger]}>Thu hồi</Text>
+                </TouchableOpacity>
+              ) : null;
+            })()}
+
+            <View style={styles.menuDivider} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => setMenuTarget(null)}
+            >
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1287,5 +1346,66 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#6B7280',
     marginLeft: 2,
+  },
+
+  // Message actions bottom sheet
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  menuSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
+    paddingHorizontal: 16,
+  },
+  menuReactionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  menuReactionBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuReactionBtnActive: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 2,
+    borderColor: '#3B82F6',
+  },
+  menuReactionEmoji: {
+    fontSize: 22,
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 8,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  menuItemIcon: {
+    fontSize: 18,
+    width: 30,
+    textAlign: 'center',
+  },
+  menuItemText: {
+    fontSize: 16,
+    color: '#111827',
+    marginLeft: 8,
+  },
+  menuItemTextDanger: {
+    color: '#EF4444',
   },
 });
