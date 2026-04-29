@@ -396,13 +396,13 @@ export default function HomeScreen() {
       <SafeAreaView style={styles.container} edges={['top']}>
         {/* Banner */}
         <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>BAOLAM Messenger</Text>
+          <Text maxFontSizeMultiplier={1} style={styles.bannerTitle}>BAOLAM Messenger</Text>
         </View>
 
         {/* Search + action row */}
         <View style={styles.searchRow}>
           <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>🔍</Text>
+            <Text maxFontSizeMultiplier={1} style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
               placeholder='Tìm kiếm hội thoại...'
@@ -410,6 +410,7 @@ export default function HomeScreen() {
               value={searchInput}
               onChangeText={setSearchInput}
               autoCapitalize='none'
+              allowFontScaling={false}
             />
             {searchInput.length > 0 ? (
               <TouchableOpacity onPress={() => setSearchInput('')}>
@@ -537,7 +538,7 @@ export default function HomeScreen() {
                         style={styles.chatAvatarImage}
                       />
                     ) : (
-                      <Text style={styles.avatarText}>
+                      <Text maxFontSizeMultiplier={1} style={styles.avatarText}>
                         {displayTitle[0].toUpperCase()}
                       </Text>
                     )}
@@ -549,15 +550,15 @@ export default function HomeScreen() {
                   </View>
                   <View style={styles.chatInfo}>
                     <View style={styles.chatTopRow}>
-                      <Text style={[styles.chatName, item.hasUnread && styles.chatNameUnread]} numberOfLines={1}>
+                      <Text maxFontSizeMultiplier={1} style={[styles.chatName, item.hasUnread && styles.chatNameUnread]} numberOfLines={1}>
                         {displayTitle}
                       </Text>
                       {timeAgo ? (
-                        <Text style={[styles.chatTime, item.hasUnread && styles.chatTimeUnread]}>{timeAgo}</Text>
+                        <Text maxFontSizeMultiplier={1} style={[styles.chatTime, item.hasUnread && styles.chatTimeUnread]}>{timeAgo}</Text>
                       ) : null}
                     </View>
                     <View style={styles.chatBottomRow}>
-                      <Text style={[styles.chatPreview, item.hasUnread && styles.chatPreviewUnread]} numberOfLines={1}>
+                      <Text maxFontSizeMultiplier={1} style={[styles.chatPreview, item.hasUnread && styles.chatPreviewUnread]} numberOfLines={1}>
                         {senderPrefix}
                         {previewBody}
                       </Text>
