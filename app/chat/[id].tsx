@@ -806,6 +806,13 @@ export default function ChatScreen() {
           {timeStr ? (
             <Text style={[styles.timeText, isMine && styles.timeTextMine]}>
               {timeStr}
+              {isMine && !isRecalled && (
+                item.is_optimistic
+                  ? ' ○'
+                  : item.read_by && item.read_by.length > 0
+                    ? ' ✓✓'
+                    : ' ✓'
+              )}
             </Text>
           ) : null}
         </TouchableOpacity>
