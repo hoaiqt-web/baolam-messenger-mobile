@@ -108,9 +108,14 @@ export default function HomeScreen() {
       const response = await chatApi.getConversations();
       setChats(response.conversations || []);
     } catch (error: any) {
+      const status = Number(error?.response?.status || 0);
       console.error('Error fetching chats', error);
-      Alert.alert('Lỗi', 'Không thể tải danh sách hội thoại.');
-      handleLogout();
+      if (status === 401) {
+        Alert.alert('Phiên đăng nhập hết hạn', 'Vui lòng đăng nhập lại.');
+        handleLogout();
+      } else {
+        Alert.alert('Lỗi', 'Không thể tải danh sách hội thoại.');
+      }
     } finally {
       setIsFetchingChats(false);
       setIsRefreshing(false);
