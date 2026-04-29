@@ -416,7 +416,7 @@ export default function HomeScreen() {
             style={styles.newChatBtn}
             onPress={() => setShowNewChatSheet(true)}
           >
-            <Text style={styles.newChatBtnText}>＋</Text>
+            <Text style={styles.newChatBtnText}>+</Text>
           </TouchableOpacity>
         </View>
         {searchError ? (
@@ -795,12 +795,12 @@ const styles = StyleSheet.create({
 
   // Header (Zalo-style: search + icons in 1 row)
   header: {
-    backgroundColor: '#2563EB',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    backgroundColor: '#0068FF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
 
   // Search (inside header, translucent)
@@ -808,19 +808,19 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 12,
-    borderRadius: 18,
-    height: 34,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    height: 32,
   },
-  searchIcon: { fontSize: 12, marginRight: 8, opacity: 0.6 },
+  searchIcon: { fontSize: 12, marginRight: 6, opacity: 0.5 },
   searchInput: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     paddingVertical: 0,
   },
-  clearSearch: { color: 'rgba(255,255,255,0.6)', fontSize: 13, paddingLeft: 6 },
+  clearSearch: { color: 'rgba(255,255,255,0.5)', fontSize: 12, paddingLeft: 6 },
   searchSectionHeader: {
     marginHorizontal: 16,
     marginTop: 6,
@@ -880,15 +880,15 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   chatName: {
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '400',
     color: '#1A1A1A',
     flex: 1,
     marginRight: 8,
-    lineHeight: 20,
+    lineHeight: 19,
   },
-  chatTime: { fontSize: 12, color: '#999999' },
-  chatPreview: { fontSize: 13, color: '#888888', lineHeight: 18 },
+  chatTime: { fontSize: 11, color: '#999999' },
+  chatPreview: { fontSize: 12, color: '#888888', lineHeight: 17 },
 
   // Empty
   emptyContainer: { padding: 40, alignItems: 'center' },
@@ -970,7 +970,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   chatNameUnread: {
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#000000',
   },
   chatTimeUnread: {
@@ -1000,17 +1000,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   newChatBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
   },
   newChatBtnText: {
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '300',
-    marginTop: -2,
+    fontSize: 24,
+    fontWeight: '200',
+    lineHeight: 26,
   },
 
   // Bottom Sheet (new chat options)
