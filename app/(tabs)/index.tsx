@@ -393,9 +393,28 @@ export default function HomeScreen() {
             <Text style={styles.headerTitle}>💬 Hội thoại</Text>
             <Text style={styles.headerSubtitle}>BAOLAM Messenger</Text>
           </View>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutText}>Đăng xuất</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.newChatBtn}
+              onPress={() => {
+                Alert.alert('Hội thoại mới', 'Chọn loại hội thoại', [
+                  {
+                    text: '👤 Tìm người dùng',
+                    onPress: () => {
+                      // Focus search bar
+                      setSearchInput('@');
+                    },
+                  },
+                  { text: 'Đóng', style: 'cancel' },
+                ]);
+              }}
+            >
+              <Text style={styles.newChatBtnText}>＋</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+              <Text style={styles.logoutText}>Đăng xuất</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Search */}
@@ -860,5 +879,23 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  newChatBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  newChatBtnText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
   },
 });
