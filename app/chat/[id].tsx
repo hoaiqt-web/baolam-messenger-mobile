@@ -166,6 +166,8 @@ export default function ChatScreen() {
   const [menuTarget, setMenuTarget] = useState<any>(null);
   const [forwardSource, setForwardSource] = useState<any>(null);
   const [forwardConversations, setForwardConversations] = useState<any[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<any[]>([]);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
 
@@ -912,6 +914,28 @@ export default function ChatScreen() {
               </TouchableOpacity>
             </View>
           )}
+
+          {/* @Mention suggestions */}
+          {mentionQuery !== null && mentionSuggestions.length > 0 && (
+            <View style={styles.mentionSuggestions}>
+              {mentionSuggestions.slice(0, 5).map((u: any) => (
+                <TouchableOpacity
+                  key={u.id}
+                  style={styles.mentionItem}
+                  onPress={() => {
+                    const beforeAt = inputText.slice(0, inputText.lastIndexOf('@'));
+                    setInputText(`${beforeAt}@${u.username} `);
+                    setMentionQuery(null);
+                    setMentionSuggestions([]);
+                  }}
+                >
+                  <Text style={styles.mentionName}>{u.fullName || u.full_name || u.username}</Text>
+                  <Text style={styles.mentionUsername}>@{u.username}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
           <View style={styles.inputBar}>
             <TouchableOpacity
               style={[
@@ -948,7 +972,35 @@ export default function ChatScreen() {
               placeholder='Nhập tin nhắn...'
               placeholderTextColor='#9CA3AF'
               value={inputText}
-              onChangeText={setInputText}
+              onChangeText={(text) => {
+                setInputText(text);
+                // Detect @mention
+                const atMatch = text.match(/@(\w*)$/);
+                if (atMatch) {
+                  const query = atMatch[1];
+                  setMentionQuery(query);
+                  if (query.length >= 1) {
+                    httpClient.get(`/conversations/${conversationId}/participants`)
+                      .then(({ data }) => {
+                        const participants = data.participants || data || [];
+                        const filtered = participants.filter((p: any) => {
+                          const name = (p.fullName || p.full_name || p.username || '').toLowerCase();
+                          return name.includes(query.toLowerCase());
+                        });
+                        setMentionSuggestions(filtered);
+                      })
+                      .catch(() => setMentionSuggestions([]));
+                  } else {
+                    // Show all participants when just typing @
+                    httpClient.get(`/conversations/${conversationId}/participants`)
+                      .then(({ data }) => setMentionSuggestions(data.participants || data || []))
+                      .catch(() => setMentionSuggestions([]));
+                  }
+                } else {
+                  setMentionQuery(null);
+                  setMentionSuggestions([]);
+                }
+              }}
               multiline
             />
             <Animated.View style={{ transform: [{ scale: sendScale }] }}>
@@ -1553,5 +1605,31 @@ const styles = StyleSheet.create({
     color: '#111827',
     textAlign: 'center',
     paddingVertical: 12,
+  },
+
+  // @Mention suggestions
+  mentionSuggestions: {
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    maxHeight: 180,
+    paddingHorizontal: 12,
+  },
+  mentionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#F3F4F6',
+  },
+  mentionName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginRight: 8,
+  },
+  mentionUsername: {
+    fontSize: 12,
+    color: '#6B7280',
   },
 });
