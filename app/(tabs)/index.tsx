@@ -81,6 +81,7 @@ export default function HomeScreen() {
   const [openingUserId, setOpeningUserId] = useState<number | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showNewChatSheet, setShowNewChatSheet] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [groupUsersList, setGroupUsersList] = useState<any[]>([]);
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<number[]>([]);
@@ -393,61 +394,30 @@ export default function HomeScreen() {
   if (isAuthenticated) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
-        {/* Header */}
+        {/* Compact header (Zalo-style: search + icons in 1 row) */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.headerTitle}>💬 Hội thoại</Text>
-            <Text style={styles.headerSubtitle}>BAOLAM Messenger</Text>
+          <View style={styles.searchBar}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder='Tìm kiếm...'
+              placeholderTextColor='rgba(255,255,255,0.5)'
+              value={searchInput}
+              onChangeText={setSearchInput}
+              autoCapitalize='none'
+            />
+            {searchInput.length > 0 ? (
+              <TouchableOpacity onPress={() => setSearchInput('')}>
+                <Text style={styles.clearSearch}>✕</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={styles.newChatBtn}
-              onPress={() => {
-                Alert.alert('Hội thoại mới', 'Chọn loại hội thoại', [
-                  {
-                    text: '👤 Tìm người dùng',
-                    onPress: () => {
-                      setSearchInput('@');
-                    },
-                  },
-                  {
-                    text: '👥 Tạo nhóm',
-                    onPress: () => {
-                      setShowCreateGroup(true);
-                      // Fetch users for group creation
-                      httpClient.get('/users')
-                        .then(({ data }) => setGroupUsersList(data.users || data || []))
-                        .catch(() => setGroupUsersList([]));
-                    },
-                  },
-                  { text: 'Đóng', style: 'cancel' },
-                ]);
-              }}
-            >
-              <Text style={styles.newChatBtnText}>＋</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-              <Text style={styles.logoutText}>Đăng xuất</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Search */}
-        <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder='Tìm kiếm hội thoại...'
-            placeholderTextColor='#9CA3AF'
-            value={searchInput}
-            onChangeText={setSearchInput}
-            autoCapitalize='none'
-          />
-          {searchInput.length > 0 ? (
-            <TouchableOpacity onPress={() => setSearchInput('')}>
-              <Text style={styles.clearSearch}>✕</Text>
-            </TouchableOpacity>
-          ) : null}
+          <TouchableOpacity
+            style={styles.newChatBtn}
+            onPress={() => setShowNewChatSheet(true)}
+          >
+            <Text style={styles.newChatBtnText}>＋</Text>
+          </TouchableOpacity>
         </View>
         {searchError ? (
           <Text style={styles.searchError}>{searchError}</Text>
@@ -616,6 +586,53 @@ export default function HomeScreen() {
           }
         />
 
+        {/* New Chat Bottom Sheet */}
+        <Modal
+          visible={showNewChatSheet}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowNewChatSheet(false)}
+        >
+          <TouchableOpacity
+            style={styles.sheetOverlay}
+            activeOpacity={1}
+            onPress={() => setShowNewChatSheet(false)}
+          >
+            <View style={styles.sheetContainer}>
+              <View style={styles.sheetHandle} />
+              <TouchableOpacity
+                style={styles.sheetItem}
+                onPress={() => {
+                  setShowNewChatSheet(false);
+                  setSearchInput('@');
+                }}
+              >
+                <Text style={styles.sheetItemIcon}>👤</Text>
+                <Text style={styles.sheetItemText}>Nhắn tin mới</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.sheetItem}
+                onPress={() => {
+                  setShowNewChatSheet(false);
+                  setShowCreateGroup(true);
+                  httpClient.get('/users')
+                    .then(({ data }: any) => setGroupUsersList(data.users || data || []))
+                    .catch(() => setGroupUsersList([]));
+                }}
+              >
+                <Text style={styles.sheetItemIcon}>👥</Text>
+                <Text style={styles.sheetItemText}>Tạo nhóm chat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sheetItem, { borderBottomWidth: 0 }]}
+                onPress={() => setShowNewChatSheet(false)}
+              >
+                <Text style={[styles.sheetItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
         {/* Create Group Modal */}
         <Modal
           visible={showCreateGroup}
@@ -776,188 +793,173 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0F2F5',
   },
 
-  // Header
+  // Header (Zalo-style: search + icons in 1 row)
   header: {
     backgroundColor: '#1E3A8A',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerTitle: { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
-  headerSubtitle: { color: '#93C5FD', fontSize: 12, marginTop: 2 },
-  logoutBtn: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 20,
-  },
-  logoutText: { color: '#FFF', fontSize: 14, fontWeight: '500' },
-
-  // Search
-  searchBar: {
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginVertical: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    gap: 10,
   },
-  searchIcon: { fontSize: 16, marginRight: 10 },
+
+  // Search (inside header, translucent)
+  searchBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    height: 36,
+  },
+  searchIcon: { fontSize: 13, marginRight: 6, opacity: 0.7 },
   searchInput: {
     flex: 1,
-    color: '#111827',
-    fontSize: 15,
+    color: '#FFFFFF',
+    fontSize: 14,
     paddingVertical: 0,
   },
-  clearSearch: { color: '#9CA3AF', fontSize: 16, paddingLeft: 8 },
+  clearSearch: { color: 'rgba(255,255,255,0.6)', fontSize: 14, paddingLeft: 6 },
   searchSectionHeader: {
     marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 6,
+    marginTop: 6,
+    marginBottom: 4,
     color: '#6B7280',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   searchError: {
     color: '#EF4444',
-    fontSize: 13,
-    marginHorizontal: 20,
-    marginTop: -4,
-    marginBottom: 8,
+    fontSize: 12,
+    marginHorizontal: 16,
+    marginTop: 2,
+    marginBottom: 4,
   },
 
-  // Chat List
+  // Chat List (high density)
   chatCard: {
     flexDirection: 'row',
     backgroundColor: '#FFF',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginHorizontal: 16,
-    marginBottom: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     alignItems: 'center',
     borderBottomWidth: 0.5,
     borderBottomColor: '#F3F4F6',
   },
   chatAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
+    marginRight: 10,
   },
-  avatarText: { fontSize: 22, fontWeight: 'bold', color: '#FFF' },
+  avatarText: { fontSize: 16, fontWeight: 'bold', color: '#FFF' },
   groupBadge: {
     position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    bottom: -1,
+    right: -1,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: '#FFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  groupBadgeText: { fontSize: 11 },
+  groupBadgeText: { fontSize: 9 },
   chatInfo: { flex: 1 },
   chatTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   chatName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#111827',
     flex: 1,
     marginRight: 8,
+    lineHeight: 20,
   },
-  chatTime: { fontSize: 12, color: '#9CA3AF' },
-  chatPreview: { fontSize: 14, color: '#6B7280', lineHeight: 20 },
+  chatTime: { fontSize: 11, color: '#9CA3AF' },
+  chatPreview: { fontSize: 13, color: '#6B7280', lineHeight: 18 },
 
   // Empty
   emptyContainer: { padding: 40, alignItems: 'center' },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
-  emptyText: { textAlign: 'center', color: '#6B7280', fontSize: 16 },
+  emptyIcon: { fontSize: 40, marginBottom: 8 },
+  emptyText: { textAlign: 'center', color: '#6B7280', fontSize: 14 },
   emptyHint: {
     textAlign: 'center',
     color: '#9CA3AF',
-    fontSize: 13,
+    fontSize: 12,
     marginTop: 4,
   },
 
   // Login
   loginContainer: { flex: 1, padding: 30, justifyContent: 'center' },
   logoCircle: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: '#1E3A8A',
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
     shadowColor: '#1E3A8A',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
   },
-  logoText: { color: '#FFF', fontSize: 44, fontWeight: 'bold' },
+  logoText: { color: '#FFF', fontSize: 38, fontWeight: 'bold' },
   welcomeTitle: {
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#111827',
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   welcomeSubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
-    marginBottom: 40,
+    marginBottom: 32,
   },
-  formGroup: { marginBottom: 20 },
-  label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
+  formGroup: { marginBottom: 16 },
+  label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
   input: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 14,
-    padding: 16,
-    fontSize: 16,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 15,
     color: '#111827',
   },
   loginBtn: {
     backgroundColor: '#1E3A8A',
-    borderRadius: 14,
-    padding: 17,
+    borderRadius: 10,
+    padding: 15,
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 8,
     shadowColor: '#1E3A8A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
   },
   loginBtnDisabled: { backgroundColor: '#9CA3AF' },
-  loginBtnText: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
+  loginBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
   versionText: {
     textAlign: 'center',
     color: '#D1D5DB',
-    fontSize: 12,
-    marginTop: 24,
+    fontSize: 11,
+    marginTop: 20,
   },
 
   // Unread indicator styles
@@ -966,29 +968,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   chatNameUnread: {
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#111827',
   },
   chatTimeUnread: {
     color: '#1E3A8A',
-    fontWeight: '700',
+    fontWeight: '600',
   },
   chatPreviewUnread: {
     fontWeight: '600',
     color: '#374151',
   },
   unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#3B82F6',
-    marginLeft: 8,
+    marginLeft: 6,
     flexShrink: 0,
   },
   chatAvatarImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
   headerActions: {
     flexDirection: 'row',
@@ -996,17 +998,58 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   newChatBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   newChatBtnText: {
     color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+
+  // Bottom Sheet (new chat options)
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'flex-end',
+  },
+  sheetContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 20,
+    paddingTop: 8,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D1D5DB',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  sheetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#F3F4F6',
+  },
+  sheetItemIcon: {
     fontSize: 20,
-    fontWeight: '700',
+    width: 32,
+    textAlign: 'center',
+    marginRight: 12,
+  },
+  sheetItemText: {
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '500',
   },
 
   // Group creation modal
