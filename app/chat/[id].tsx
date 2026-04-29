@@ -12,10 +12,14 @@ import {
   Alert,
   Animated,
   AppState,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { httpClient } from '@/services/api/httpClient';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { Ionicons } from '@expo/vector-icons';
 import {
   getLastRealtimeInboundActivityAt,
   getRealtimeConnectionState,
@@ -61,6 +65,24 @@ function getSenderName(item: any): string {
   );
 }
 
+function formatFileSize(bytes: number | null | undefined): string {
+  const size = Number(bytes || 0);
+  if (size <= 0) return '';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function appendUploadedMessage(setMessages: any, payload: any) {
+  const actualMessage = payload?.message || payload?.data || payload;
+  setMessages((prev: any[]) => {
+    const exists = prev.some(
+      (msg) => Number(msg?.id) === Number(actualMessage?.id),
+    );
+    return exists ? prev : [actualMessage, ...prev];
+  });
+}
+
 export default function ChatScreen() {
   const REALTIME_IDLE_THRESHOLD_MS = 15_000;
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
@@ -71,6 +93,8 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const sendScale = useRef(new Animated.Value(1)).current;
@@ -261,12 +285,182 @@ export default function ChatScreen() {
     }
   };
 
+  const uploadFileByPresign = async ({
+    uri,
+    fileName,
+    mimeType,
+    size,
+  }: {
+    uri: string;
+    fileName: string;
+    mimeType: string;
+    size: number;
+  }) => {
+    const clientFileId = `mobile-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const presignResponse = await httpClient.post('/chat/attachments/presign', {
+      conversationId,
+      files: [
+        {
+          clientFileId,
+          name: fileName,
+          mimeType,
+          size: size > 0 ? size : 1,
+        },
+      ],
+    });
+    const presigned = presignResponse.data?.items?.[0];
+    if (!presigned?.uploadUrl || !presigned?.objectKey) {
+      throw new Error('Missing presign payload');
+    }
+
+    const fileResponse = await fetch(uri);
+    const fileBlob = await fileResponse.blob();
+    const uploadHeaders: Record<string, string> = {
+      ...(presigned.headers || {}),
+      'Content-Type': mimeType,
+    };
+
+    const uploadResult = await fetch(presigned.uploadUrl, {
+      method: 'PUT',
+      headers: uploadHeaders,
+      body: fileBlob,
+    });
+    if (!uploadResult.ok) {
+      throw new Error(`Upload failed with status ${uploadResult.status}`);
+    }
+
+    const sendResponse = await httpClient.post(
+      `/conversations/${conversationId}/messages`,
+      {
+        body: '',
+        clientMessageId: `file-msg-${Date.now()}`,
+        traceId: `file-trace-${Date.now()}`,
+        clientSentAt: Date.now(),
+        attachments: [
+          {
+            clientFileId,
+            objectKey: presigned.objectKey,
+            mimeType,
+            size: size > 0 ? size : fileBlob.size,
+            originalName: fileName,
+          },
+        ],
+      },
+    );
+
+    await appendUploadedMessage(setMessages, sendResponse.data);
+  };
+
+  const handlePickAndSendImage = async () => {
+    if (
+      isUploadingImage ||
+      !Number.isFinite(conversationId) ||
+      conversationId <= 0
+    )
+      return;
+
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Quyền bị từ chối',
+          'Vui lòng cấp quyền thư viện ảnh để gửi ảnh.',
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsMultipleSelection: false,
+        quality: 0.85,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      const fileName = asset.fileName || `image-${Date.now()}.jpg`;
+      const mimeType = asset.mimeType || 'image/jpeg';
+      const isImage = mimeType.startsWith('image/');
+      const size = Number(asset.fileSize || asset.file?.size || 0);
+
+      if (!isImage) {
+        setIsUploadingImage(true);
+        await uploadFileByPresign({
+          uri: asset.uri,
+          fileName,
+          mimeType,
+          size,
+        });
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        name: fileName,
+        type: mimeType,
+      } as any);
+
+      setIsUploadingImage(true);
+      const { data } = await httpClient.post(
+        `/conversations/${conversationId}/attachments/direct`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } },
+      );
+
+      await appendUploadedMessage(setMessages, data);
+    } catch (error) {
+      console.error('Error uploading image', error);
+      Alert.alert('Lỗi', 'Không thể gửi ảnh.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const handlePickAndSendFile = async () => {
+    if (
+      isUploadingFile ||
+      !Number.isFinite(conversationId) ||
+      conversationId <= 0
+    )
+      return;
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      const fileName = asset.name || `file-${Date.now()}`;
+      const mimeType = asset.mimeType || 'application/octet-stream';
+      const size = Number(asset.size || 0);
+
+      setIsUploadingFile(true);
+      await uploadFileByPresign({
+        uri: asset.uri,
+        fileName,
+        mimeType,
+        size,
+      });
+    } catch (error) {
+      console.error('Error uploading file', error);
+      Alert.alert('Lỗi', 'Không thể gửi file.');
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
   const renderMessage = ({ item, index }: { item: any; index: number }) => {
     const senderId = item.sender_id || item.senderId || item.sender?.id;
     const isMine = senderId === currentUserId;
     const senderName = getSenderName(item);
     const timeStr = formatTime(item.sentAt || item.sent_at || item.created_at);
     const avatarColor = getAvatarColor(senderName);
+    const attachments = Array.isArray(item.attachments) ? item.attachments : [];
+    const hasText = Boolean(String(item.body || '').trim());
 
     // Check if next message (visually above since inverted) is from same sender
     const nextMsg = messages[index + 1];
@@ -309,9 +503,44 @@ export default function ChatScreen() {
               item.is_optimistic && styles.bubbleOptimistic,
             ]}
           >
-            <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>
-              {item.body}
-            </Text>
+            {attachments.length > 0 ? (
+              <View style={styles.attachmentList}>
+                {attachments.map((attachment: any, attachmentIndex: number) => {
+                  const key = attachment?.id || `att-${attachmentIndex}`;
+                  const mimeType = String(
+                    attachment?.mimeType || '',
+                  ).toLowerCase();
+                  const isImageAttachment = mimeType.startsWith('image/');
+                  const imageUrl = attachment?.url;
+                  if (isImageAttachment && imageUrl) {
+                    return (
+                      <Image
+                        key={key}
+                        source={{ uri: imageUrl }}
+                        style={styles.attachmentImage}
+                      />
+                    );
+                  }
+                  return (
+                    <View key={key} style={styles.fileAttachmentCard}>
+                      <Text style={styles.fileAttachmentName} numberOfLines={1}>
+                        {attachment?.originalName || 'Tệp đính kèm'}
+                      </Text>
+                      <Text style={styles.fileAttachmentMeta}>
+                        {formatFileSize(attachment?.size)}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+            {hasText ? (
+              <Text
+                style={[styles.bubbleText, isMine && styles.bubbleTextMine]}
+              >
+                {item.body}
+              </Text>
+            ) : null}
           </View>
           {timeStr ? (
             <Text style={[styles.timeText, isMine && styles.timeTextMine]}>
@@ -367,6 +596,36 @@ export default function ChatScreen() {
           />
 
           <View style={styles.inputBar}>
+            <TouchableOpacity
+              style={[
+                styles.attachBtn,
+                isUploadingImage && styles.attachBtnDisabled,
+              ]}
+              onPress={handlePickAndSendImage}
+              disabled={isUploadingImage}
+              activeOpacity={0.7}
+            >
+              {isUploadingImage ? (
+                <ActivityIndicator size='small' color='#1E3A8A' />
+              ) : (
+                <Ionicons name='images-outline' size={20} color='#334155' />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.attachBtn,
+                isUploadingFile && styles.attachBtnDisabled,
+              ]}
+              onPress={handlePickAndSendFile}
+              disabled={isUploadingFile}
+              activeOpacity={0.7}
+            >
+              {isUploadingFile ? (
+                <ActivityIndicator size='small' color='#1E3A8A' />
+              ) : (
+                <Ionicons name='attach-outline' size={20} color='#334155' />
+              )}
+            </TouchableOpacity>
             <TextInput
               style={styles.inputField}
               placeholder='Nhập tin nhắn...'
@@ -442,6 +701,23 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   bubbleOptimistic: { opacity: 0.55 },
+  attachmentList: { gap: 8, marginBottom: 6 },
+  attachmentImage: {
+    width: 220,
+    height: 220,
+    borderRadius: 12,
+    backgroundColor: '#E5E7EB',
+  },
+  fileAttachmentCard: {
+    minWidth: 170,
+    maxWidth: 220,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  fileAttachmentName: { color: '#111827', fontSize: 13, fontWeight: '600' },
+  fileAttachmentMeta: { color: '#6B7280', fontSize: 11, marginTop: 2 },
 
   bubbleText: { fontSize: 16, lineHeight: 22, color: '#1F2937' },
   bubbleTextMine: { color: '#FFFFFF' },
@@ -466,6 +742,18 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     alignItems: 'flex-end',
   },
+  attachBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  attachBtnDisabled: { opacity: 0.7 },
   inputField: {
     flex: 1,
     backgroundColor: '#F3F4F6',
