@@ -344,18 +344,76 @@ export default function ChatScreen() {
     ]);
   };
 
+  const handleToggleReaction = async (item: any, emoji: string) => {
+    const messageId = Number(item.id);
+    if (!messageId) return;
+
+    // Optimistic update
+    const oldSummary = item.reactions_summary || {};
+    const newSummary = { ...oldSummary };
+    const wasReacted = item.user_reaction === emoji;
+
+    if (wasReacted) {
+      newSummary[emoji] = Math.max(0, (newSummary[emoji] || 1) - 1);
+      if (newSummary[emoji] === 0) delete newSummary[emoji];
+    } else {
+      if (item.user_reaction && newSummary[item.user_reaction]) {
+        newSummary[item.user_reaction] = Math.max(0, newSummary[item.user_reaction] - 1);
+        if (newSummary[item.user_reaction] === 0) delete newSummary[item.user_reaction];
+      }
+      newSummary[emoji] = (newSummary[emoji] || 0) + 1;
+    }
+
+    setMessages((prev) =>
+      prev.map((msg) =>
+        Number(msg.id) === messageId
+          ? { ...msg, reactions_summary: newSummary, user_reaction: wasReacted ? null : emoji }
+          : msg,
+      ),
+    );
+
+    try {
+      await httpClient.post(`/messages/${messageId}/reactions`, { type: emoji });
+    } catch {
+      // revert on failure
+      setMessages((prev) =>
+        prev.map((msg) =>
+          Number(msg.id) === messageId
+            ? { ...msg, reactions_summary: oldSummary, user_reaction: item.user_reaction }
+            : msg,
+        ),
+      );
+    }
+  };
+
   const handleLongPressMessage = (item: any) => {
     const senderId = item.sender_id || item.senderId || item.sender?.id;
     const isMine = senderId === currentUserId;
     const isRecalled = item.isRecalled || item.is_recalled;
     if (isRecalled) return;
 
+    const hasBody = Boolean(String(item.body || '').trim());
+
     const options: { text: string; onPress: () => void; style?: 'cancel' | 'destructive' }[] = [
-      {
-        text: '↩️ Trả lời',
-        onPress: () => setReplyTarget(item),
-      },
+      // Quick reactions
+      { text: '👍', onPress: () => handleToggleReaction(item, '👍') },
+      { text: '❤️', onPress: () => handleToggleReaction(item, '❤️') },
+      { text: '😂', onPress: () => handleToggleReaction(item, '😂') },
+      { text: '↩️ Trả lời', onPress: () => setReplyTarget(item) },
     ];
+    if (hasBody) {
+      options.push({
+        text: '📋 Sao chép',
+        onPress: () => {
+          try {
+            const { Clipboard } = require('react-native');
+            Clipboard.setString(item.body || '');
+          } catch {
+            // Clipboard may not be available
+          }
+        },
+      });
+    }
     if (isMine) {
       options.push({
         text: '🗑️ Thu hồi',
@@ -722,6 +780,24 @@ export default function ChatScreen() {
               </Text>
             ) : null}
           </View>
+          {/* Reactions summary */}
+          {!isRecalled && item.reactions_summary && Object.keys(item.reactions_summary).length > 0 && (
+            <View style={[styles.reactionsRow, isMine && styles.reactionsRowMine]}>
+              {Object.entries(item.reactions_summary).map(([emoji, count]: [string, any]) => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={[
+                    styles.reactionBadge,
+                    item.user_reaction === emoji && styles.reactionBadgeActive,
+                  ]}
+                  onPress={() => handleToggleReaction(item, emoji)}
+                >
+                  <Text style={styles.reactionEmoji}>{emoji}</Text>
+                  {Number(count) > 1 && <Text style={styles.reactionCount}>{count}</Text>}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           {timeStr ? (
             <Text style={[styles.timeText, isMine && styles.timeTextMine]}>
               {timeStr}
@@ -1166,5 +1242,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9CA3AF',
     fontStyle: 'italic',
+  },
+
+  // Emoji reactions
+  reactionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 4,
+    gap: 4,
+  },
+  reactionsRowMine: {
+    justifyContent: 'flex-end',
+  },
+  reactionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  reactionBadgeActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+  },
+  reactionEmoji: {
+    fontSize: 14,
+  },
+  reactionCount: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginLeft: 2,
   },
 });
