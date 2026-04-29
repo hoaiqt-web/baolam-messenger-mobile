@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { httpClient } from '@/services/api/httpClient';
-import { authStorage } from '@/services/storage/authStorage';
+import { authStorage } from '@/features/auth/authStorage';
 import { useRouter } from 'expo-router';
 
 export default function SettingsScreen() {
@@ -38,7 +38,7 @@ export default function SettingsScreen() {
           try {
             await httpClient.post('/auth/logout');
           } catch {}
-          authStorage.clearTokens();
+          authStorage.clearToken();
           router.replace('/');
         },
       },

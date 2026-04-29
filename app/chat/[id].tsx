@@ -851,6 +851,12 @@ export default function ChatScreen() {
           headerStyle: { backgroundColor: '#1E3A8A' },
           headerTintColor: '#FFFFFF',
           headerTitleStyle: { fontWeight: 'bold', fontSize: 18 },
+          headerRight: () => (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E', marginRight: 6 }} />
+              <Text style={{ color: '#93C5FD', fontSize: 11 }}>Online</Text>
+            </View>
+          ),
         }}
       />
 
