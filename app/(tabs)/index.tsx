@@ -532,17 +532,20 @@ export default function HomeScreen() {
                   </View>
                   <View style={styles.chatInfo}>
                     <View style={styles.chatTopRow}>
-                      <Text style={styles.chatName} numberOfLines={1}>
+                      <Text style={[styles.chatName, item.hasUnread && styles.chatNameUnread]} numberOfLines={1}>
                         {displayTitle}
                       </Text>
                       {timeAgo ? (
-                        <Text style={styles.chatTime}>{timeAgo}</Text>
+                        <Text style={[styles.chatTime, item.hasUnread && styles.chatTimeUnread]}>{timeAgo}</Text>
                       ) : null}
                     </View>
-                    <Text style={styles.chatPreview} numberOfLines={1}>
-                      {senderPrefix}
-                      {previewBody}
-                    </Text>
+                    <View style={styles.chatBottomRow}>
+                      <Text style={[styles.chatPreview, item.hasUnread && styles.chatPreviewUnread]} numberOfLines={1}>
+                        {senderPrefix}
+                        {previewBody}
+                      </Text>
+                      {item.hasUnread && <View style={styles.unreadDot} />}
+                    </View>
                   </View>
                 </TouchableOpacity>
               </>
@@ -818,5 +821,31 @@ const styles = StyleSheet.create({
     color: '#D1D5DB',
     fontSize: 12,
     marginTop: 24,
+  },
+
+  // Unread indicator styles
+  chatBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chatNameUnread: {
+    fontWeight: '800',
+    color: '#111827',
+  },
+  chatTimeUnread: {
+    color: '#1E3A8A',
+    fontWeight: '700',
+  },
+  chatPreviewUnread: {
+    fontWeight: '600',
+    color: '#374151',
+  },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#3B82F6',
+    marginLeft: 8,
+    flexShrink: 0,
   },
 });
