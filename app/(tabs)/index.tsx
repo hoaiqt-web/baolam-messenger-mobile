@@ -254,19 +254,20 @@ export default function HomeScreen() {
   }, [isAuthenticated]);
 
   const getDisplayTitle = (item: any) => {
-    if (item.name) return item.name;
+    // For direct chats: always show the other person's name
     if (item.type === 'direct' && item.participants) {
       const other = item.participants.find(
-        (p: any) => p.user?.username !== username,
+        (p: any) => p.user?.id !== currentUserId && p.user?.username !== username,
       );
-      return (
+      const otherName =
         other?.user?.full_name ||
         other?.user?.fullName ||
-        other?.user?.username ||
-        'Trò chuyện riêng'
-      );
+        other?.user?.username;
+      if (otherName) return otherName;
     }
-    return 'Nhóm không tên';
+    // For groups or when participant lookup fails
+    if (item.name && item.name !== 'Trò chuyện riêng') return item.name;
+    return item.type === 'direct' ? 'Tin nhắn riêng' : 'Nhóm không tên';
   };
 
   useEffect(() => {

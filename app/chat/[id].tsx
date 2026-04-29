@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,6 +13,9 @@ import {
   Animated,
   AppState,
   Image,
+  Modal,
+  Dimensions,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -103,6 +106,25 @@ export default function ChatScreen() {
   const lastPollAtRef = useRef(0);
 
   const chatTitle = (name as string) || 'Tin nhắn';
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+
+  // Deduplicate messages by ID to prevent "two children with same key" error
+  const deduplicateMessages = (msgs: any[]): any[] => {
+    const seen = new Map<string, any>();
+    for (const msg of msgs) {
+      const key = String(msg.id || msg.client_message_id || msg.clientMessageId);
+      // Prefer real messages over optimistic ones
+      if (!seen.has(key) || !msg.is_optimistic) {
+        seen.set(key, msg);
+      }
+    }
+    return Array.from(seen.values());
+  };
+
+  // Deduplicate at render time to guarantee unique keys for FlatList
+  const uniqueMessages = useMemo(() => deduplicateMessages(messages), [messages]);
 
   useEffect(() => {
     const fetchUserId = async () => {
@@ -152,7 +174,7 @@ export default function ChatScreen() {
             return next;
           }
 
-          return [incoming, ...withoutOptimistic];
+          return deduplicateMessages([incoming, ...withoutOptimistic]);
         });
       },
       undefined,
@@ -173,11 +195,12 @@ export default function ChatScreen() {
     );
   }, [conversationId]);
 
+
   const fetchMessages = async () => {
     try {
       const { data } = await httpClient.get(`/conversations/${id}/messages`);
       const msgs = data.messages || data.data || [];
-      setMessages(msgs.reverse());
+      setMessages(deduplicateMessages(msgs.reverse()));
     } catch (error: any) {
       console.error('Error fetching messages', error);
     } finally {
@@ -514,11 +537,16 @@ export default function ChatScreen() {
                   const imageUrl = attachment?.url;
                   if (isImageAttachment && imageUrl) {
                     return (
-                      <Image
+                      <TouchableOpacity
                         key={key}
-                        source={{ uri: imageUrl }}
-                        style={styles.attachmentImage}
-                      />
+                        activeOpacity={0.8}
+                        onPress={() => setPreviewImageUrl(imageUrl)}
+                      >
+                        <Image
+                          source={{ uri: imageUrl }}
+                          style={styles.attachmentImage}
+                        />
+                      </TouchableOpacity>
                     );
                   }
                   return (
@@ -573,13 +601,14 @@ export default function ChatScreen() {
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 100}
         >
           <FlatList
-            data={messages}
-            keyExtractor={(item, index) =>
-              item?.id?.toString() || item?.client_message_id || `msg-${index}`
-            }
+            data={uniqueMessages}
+            keyExtractor={(item, index) => {
+              const base = item?.id?.toString() || item?.client_message_id || '';
+              return base ? `${base}` : `msg-fallback-${index}`;
+            }}
             renderItem={renderMessage}
             inverted
             contentContainerStyle={styles.messageList}
@@ -654,6 +683,38 @@ export default function ChatScreen() {
           </View>
         </KeyboardAvoidingView>
       )}
+
+      {/* Full-screen image preview */}
+      <Modal
+        visible={!!previewImageUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImageUrl(null)}
+      >
+        <Pressable
+          style={styles.imagePreviewOverlay}
+          onPress={() => setPreviewImageUrl(null)}
+        >
+          <View style={styles.imagePreviewHeader}>
+            <TouchableOpacity
+              onPress={() => setPreviewImageUrl(null)}
+              style={styles.imagePreviewCloseBtn}
+            >
+              <Text style={styles.imagePreviewCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {previewImageUrl && (
+            <Image
+              source={{ uri: previewImageUrl }}
+              style={{
+                width: screenWidth,
+                height: screenHeight * 0.75,
+              }}
+              resizeMode="contain"
+            />
+          )}
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -737,6 +798,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 8,
     paddingHorizontal: 12,
+    paddingBottom: 14,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderColor: '#E5E7EB',
@@ -777,4 +839,31 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { backgroundColor: '#CBD5E1' },
   sendBtnIcon: { color: '#FFFFFF', fontSize: 20, marginLeft: 2 },
+
+  // Full-screen image preview
+  imagePreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewHeader: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  imagePreviewCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewCloseText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
 });
