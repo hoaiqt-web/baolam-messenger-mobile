@@ -180,6 +180,11 @@ export default function ChatScreen() {
     };
     fetchUserId();
     fetchMessages();
+
+    // Mark conversation as read when entering
+    if (Number.isFinite(conversationId) && conversationId > 0) {
+      httpClient.post(`/conversations/${conversationId}/mark-read`).catch(() => {});
+    }
   }, [id]);
 
   useEffect(() => {
