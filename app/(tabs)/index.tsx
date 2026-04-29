@@ -11,11 +11,13 @@ import {
   RefreshControl,
   AppState,
   Image,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { authApi } from '@/services/api/authApi';
 import { chatApi } from '@/services/api/chatApi';
+import { httpClient } from '@/services/api/httpClient';
 import { authStorage } from '@/features/auth/authStorage';
 import {
   getLastRealtimeInboundActivityAt,
@@ -78,6 +80,10 @@ export default function HomeScreen() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [openingUserId, setOpeningUserId] = useState<number | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupUsersList, setGroupUsersList] = useState<any[]>([]);
+  const [selectedGroupMembers, setSelectedGroupMembers] = useState<number[]>([]);
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -401,8 +407,17 @@ export default function HomeScreen() {
                   {
                     text: '👤 Tìm người dùng',
                     onPress: () => {
-                      // Focus search bar
                       setSearchInput('@');
+                    },
+                  },
+                  {
+                    text: '👥 Tạo nhóm',
+                    onPress: () => {
+                      setShowCreateGroup(true);
+                      // Fetch users for group creation
+                      httpClient.get('/users')
+                        .then(({ data }) => setGroupUsersList(data.users || data || []))
+                        .catch(() => setGroupUsersList([]));
                     },
                   },
                   { text: 'Đóng', style: 'cancel' },
@@ -600,6 +615,101 @@ export default function HomeScreen() {
             </View>
           }
         />
+
+        {/* Create Group Modal */}
+        <Modal
+          visible={showCreateGroup}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowCreateGroup(false)}
+        >
+          <View style={styles.groupModalOverlay}>
+            <View style={styles.groupModalSheet}>
+              <Text style={styles.groupModalTitle}>👥 Tạo nhóm mới</Text>
+              <TextInput
+                style={styles.groupNameInput}
+                placeholder="Tên nhóm..."
+                placeholderTextColor="#9CA3AF"
+                value={groupName}
+                onChangeText={setGroupName}
+              />
+              <Text style={styles.groupSectionLabel}>
+                Chọn thành viên ({selectedGroupMembers.length})
+              </Text>
+              <FlatList
+                data={groupUsersList.filter((u: any) => u.id !== currentUserId)}
+                keyExtractor={(u) => String(u.id)}
+                style={styles.groupUserList}
+                renderItem={({ item: u }) => {
+                  const isSelected = selectedGroupMembers.includes(u.id);
+                  return (
+                    <TouchableOpacity
+                      style={[styles.groupUserItem, isSelected && styles.groupUserItemSelected]}
+                      onPress={() => {
+                        setSelectedGroupMembers((prev) =>
+                          isSelected
+                            ? prev.filter((id) => id !== u.id)
+                            : [...prev, u.id],
+                        );
+                      }}
+                    >
+                      <Text style={styles.groupUserName}>
+                        {isSelected ? '✅ ' : '○ '}
+                        {u.fullName || u.full_name || u.username}
+                      </Text>
+                      <Text style={styles.groupUserUsername}>@{u.username}</Text>
+                    </TouchableOpacity>
+                  );
+                }}
+                ListEmptyComponent={
+                  <View style={{ padding: 16, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#1E3A8A" />
+                  </View>
+                }
+              />
+              <View style={styles.groupModalActions}>
+                <TouchableOpacity
+                  style={styles.groupCancelBtn}
+                  onPress={() => {
+                    setShowCreateGroup(false);
+                    setGroupName('');
+                    setSelectedGroupMembers([]);
+                  }}
+                >
+                  <Text style={styles.groupCancelText}>Hủy</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.groupCreateBtn,
+                    (!groupName.trim() || selectedGroupMembers.length === 0) && styles.groupCreateBtnDisabled,
+                  ]}
+                  disabled={!groupName.trim() || selectedGroupMembers.length === 0}
+                  onPress={async () => {
+                    try {
+                      const { data } = await httpClient.post('/conversations/group', {
+                        name: groupName.trim(),
+                        participantIds: selectedGroupMembers,
+                      });
+                      const conv = data.conversation || data;
+                      setShowCreateGroup(false);
+                      setGroupName('');
+                      setSelectedGroupMembers([]);
+                      // Navigate to new group
+                      router.push({
+                        pathname: '/chat/[id]',
+                        params: { id: conv.id, name: conv.name || groupName },
+                      });
+                    } catch {
+                      Alert.alert('Lỗi', 'Không thể tạo nhóm');
+                    }
+                  }}
+                >
+                  <Text style={styles.groupCreateText}>Tạo nhóm</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -896,6 +1006,96 @@ const styles = StyleSheet.create({
   newChatBtnText: {
     color: '#FFFFFF',
     fontSize: 20,
+    fontWeight: '700',
+  },
+
+  // Group creation modal
+  groupModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  groupModalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  groupModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  groupNameInput: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    color: '#111827',
+    marginBottom: 12,
+  },
+  groupSectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  groupUserList: {
+    maxHeight: 300,
+  },
+  groupUserItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#F3F4F6',
+  },
+  groupUserItemSelected: {
+    backgroundColor: '#EFF6FF',
+  },
+  groupUserName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  groupUserUsername: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  groupModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    gap: 12,
+  },
+  groupCancelBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+  },
+  groupCancelText: {
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  groupCreateBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#1E3A8A',
+    alignItems: 'center',
+  },
+  groupCreateBtnDisabled: {
+    opacity: 0.5,
+  },
+  groupCreateText: {
+    color: '#FFFFFF',
     fontWeight: '700',
   },
 });
