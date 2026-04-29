@@ -10,6 +10,7 @@ import {
   Alert,
   RefreshControl,
   AppState,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -521,9 +522,16 @@ export default function HomeScreen() {
                       { backgroundColor: avatarColor },
                     ]}
                   >
-                    <Text style={styles.avatarText}>
-                      {displayTitle[0].toUpperCase()}
-                    </Text>
+                    {item.avatarUrl ? (
+                      <Image
+                        source={{ uri: item.avatarUrl }}
+                        style={styles.chatAvatarImage}
+                      />
+                    ) : (
+                      <Text style={styles.avatarText}>
+                        {displayTitle[0].toUpperCase()}
+                      </Text>
+                    )}
                     {isGroup && (
                       <View style={styles.groupBadge}>
                         <Text style={styles.groupBadgeText}>👥</Text>
@@ -847,5 +855,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#3B82F6',
     marginLeft: 8,
     flexShrink: 0,
+  },
+  chatAvatarImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
   },
 });
