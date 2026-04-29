@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -80,6 +80,22 @@ export default function ChatScreen() {
 
   const chatTitle = (name as string) || 'Tin nhắn';
 
+  // Deduplicate messages by ID to prevent "two children with same key" error
+  const deduplicateMessages = (msgs: any[]): any[] => {
+    const seen = new Map<string, any>();
+    for (const msg of msgs) {
+      const key = String(msg.id || msg.client_message_id || msg.clientMessageId);
+      // Prefer real messages over optimistic ones
+      if (!seen.has(key) || !msg.is_optimistic) {
+        seen.set(key, msg);
+      }
+    }
+    return Array.from(seen.values());
+  };
+
+  // Deduplicate at render time to guarantee unique keys for FlatList
+  const uniqueMessages = useMemo(() => deduplicateMessages(messages), [messages]);
+
   useEffect(() => {
     const fetchUserId = async () => {
       try {
@@ -128,7 +144,7 @@ export default function ChatScreen() {
             return next;
           }
 
-          return [incoming, ...withoutOptimistic];
+          return deduplicateMessages([incoming, ...withoutOptimistic]);
         });
       },
       undefined,
@@ -149,11 +165,12 @@ export default function ChatScreen() {
     );
   }, [conversationId]);
 
+
   const fetchMessages = async () => {
     try {
       const { data } = await httpClient.get(`/conversations/${id}/messages`);
       const msgs = data.messages || data.data || [];
-      setMessages(msgs.reverse());
+      setMessages(deduplicateMessages(msgs.reverse()));
     } catch (error: any) {
       console.error('Error fetching messages', error);
     } finally {
@@ -344,13 +361,14 @@ export default function ChatScreen() {
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 100}
         >
           <FlatList
-            data={messages}
-            keyExtractor={(item, index) =>
-              item?.id?.toString() || item?.client_message_id || `msg-${index}`
-            }
+            data={uniqueMessages}
+            keyExtractor={(item, index) => {
+              const base = item?.id?.toString() || item?.client_message_id || '';
+              return base ? `${base}` : `msg-fallback-${index}`;
+            }}
             renderItem={renderMessage}
             inverted
             contentContainerStyle={styles.messageList}
@@ -461,6 +479,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 8,
     paddingHorizontal: 12,
+    paddingBottom: 14,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderColor: '#E5E7EB',
