@@ -1,16 +1,42 @@
-import { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, ActivityIndicator, FlatList, Alert, RefreshControl } from 'react-native';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  FlatList,
+  Alert,
+  RefreshControl,
+  AppState,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { authApi } from '@/services/api/authApi';
 import { chatApi } from '@/services/api/chatApi';
 import { authStorage } from '@/features/auth/authStorage';
+import {
+  getLastRealtimeInboundActivityAt,
+  getRealtimeConnectionState,
+  subscribeUserInboxMessages,
+} from '@/services/realtime/reverbClient';
 
 // Color palette for avatars
-const AVATAR_COLORS = ['#6366F1', '#EC4899', '#F59E0B', '#10B981', '#8B5CF6', '#EF4444', '#14B8A6', '#F97316'];
+const AVATAR_COLORS = [
+  '#6366F1',
+  '#EC4899',
+  '#F59E0B',
+  '#10B981',
+  '#8B5CF6',
+  '#EF4444',
+  '#14B8A6',
+  '#F97316',
+];
 function getAvatarColor(name: string) {
   let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < name.length; i++)
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
@@ -31,6 +57,9 @@ function formatTimeAgo(dateStr: string | null | undefined) {
 }
 
 export default function HomeScreen() {
+  const REALTIME_IDLE_THRESHOLD_MS = 15_000;
+  const POLL_INTERVAL_HEALTHY_MS = 25_000;
+  const POLL_INTERVAL_DEGRADED_MS = 5_000;
   const router = useRouter();
   const [isInitializing, setIsInitializing] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -40,6 +69,19 @@ export default function HomeScreen() {
   const [isFetchingChats, setIsFetchingChats] = useState(false);
   const [chats, setChats] = useState<any[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [directoryChats, setDirectoryChats] = useState<any[]>([]);
+  const [directoryUsers, setDirectoryUsers] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [openingUserId, setOpeningUserId] = useState<number | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const fetchChatsRef = useRef<() => void>(() => undefined);
+  const lastPollAtRef = useRef(0);
 
   useEffect(() => {
     const initApp = async () => {
@@ -47,6 +89,12 @@ export default function HomeScreen() {
       const token = authStorage.getToken();
       if (token) {
         setIsAuthenticated(true);
+        try {
+          const me = await authApi.me();
+          setCurrentUserId(Number(me.user?.id) || null);
+        } catch {
+          setCurrentUserId(null);
+        }
         fetchChats();
       }
       setIsInitializing(false);
@@ -60,8 +108,8 @@ export default function HomeScreen() {
       const response = await chatApi.getConversations();
       setChats(response.conversations || []);
     } catch (error: any) {
-      console.error("Error fetching chats", error);
-      Alert.alert("Lỗi", "Không thể tải danh sách hội thoại.");
+      console.error('Error fetching chats', error);
+      Alert.alert('Lỗi', 'Không thể tải danh sách hội thoại.');
       handleLogout();
     } finally {
       setIsFetchingChats(false);
@@ -74,6 +122,19 @@ export default function HomeScreen() {
     fetchChats();
   }, []);
 
+  useEffect(() => {
+    fetchChatsRef.current = fetchChats;
+  }, [fetchChats]);
+
+  useEffect(() => {
+    const trimmed = searchInput.trim();
+    const timer = setTimeout(() => {
+      setDebouncedSearch(trimmed);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
   const handleLogin = async () => {
     if (!username || !password) {
       Alert.alert('Lỗi', 'Vui lòng nhập tài khoản và mật khẩu!');
@@ -82,11 +143,22 @@ export default function HomeScreen() {
     setIsLoading(true);
     try {
       const response = await authApi.login({ username, password });
-      await authStorage.setTokens(response.access_token, response.refresh_token);
+      await authStorage.setTokens(
+        response.access_token,
+        response.refresh_token,
+      );
       setIsAuthenticated(true);
+      setCurrentUserId(Number(response.user?.id) || null);
       fetchChats();
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error('login error', {
+        code: error?.code,
+        message: error?.message,
+        status: error?.response?.status,
+        responseData: error?.response?.data,
+        requestUrl: error?.config?.url,
+        requestMethod: error?.config?.method,
+      });
       Alert.alert('Đăng nhập thất bại', 'Sai tài khoản hoặc mật khẩu.');
     } finally {
       setIsLoading(false);
@@ -97,23 +169,199 @@ export default function HomeScreen() {
     await authStorage.clearToken();
     setIsAuthenticated(false);
     setChats([]);
+    setSearchInput('');
+    setDebouncedSearch('');
+    setDirectoryChats([]);
+    setDirectoryUsers([]);
+    setSearchError(null);
+    setCurrentUserId(null);
     setUsername('');
     setPassword('');
   };
 
+  const scheduleRealtimeConversationRefresh = useCallback(() => {
+    if (realtimeRefreshTimerRef.current) {
+      return;
+    }
+
+    realtimeRefreshTimerRef.current = setTimeout(() => {
+      realtimeRefreshTimerRef.current = null;
+      fetchChats();
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (realtimeRefreshTimerRef.current) {
+        clearTimeout(realtimeRefreshTimerRef.current);
+        realtimeRefreshTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUserId) {
+      return;
+    }
+
+    return subscribeUserInboxMessages(
+      currentUserId,
+      () => scheduleRealtimeConversationRefresh(),
+      () => scheduleRealtimeConversationRefresh(),
+      () => scheduleRealtimeConversationRefresh(),
+    );
+  }, [isAuthenticated, currentUserId, scheduleRealtimeConversationRefresh]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    const maybePoll = () => {
+      const now = Date.now();
+      const state = getRealtimeConnectionState();
+      const idleMs = now - getLastRealtimeInboundActivityAt();
+      const degraded =
+        state !== 'connected' || idleMs > REALTIME_IDLE_THRESHOLD_MS;
+      const intervalMs = degraded
+        ? POLL_INTERVAL_DEGRADED_MS
+        : POLL_INTERVAL_HEALTHY_MS;
+
+      if (now - lastPollAtRef.current < intervalMs) {
+        return;
+      }
+
+      lastPollAtRef.current = now;
+      fetchChatsRef.current();
+    };
+
+    const interval = setInterval(maybePoll, 2000);
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        fetchChatsRef.current();
+      }
+    });
+
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
+  }, [isAuthenticated]);
+
   const getDisplayTitle = (item: any) => {
     if (item.name) return item.name;
     if (item.type === 'direct' && item.participants) {
-      const other = item.participants.find((p: any) => p.user?.username !== username);
-      return other?.user?.full_name || other?.user?.fullName || other?.user?.username || 'Trò chuyện riêng';
+      const other = item.participants.find(
+        (p: any) => p.user?.username !== username,
+      );
+      return (
+        other?.user?.full_name ||
+        other?.user?.fullName ||
+        other?.user?.username ||
+        'Trò chuyện riêng'
+      );
     }
     return 'Nhóm không tên';
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated || debouncedSearch.length < 2) {
+      setDirectoryChats([]);
+      setDirectoryUsers([]);
+      setIsSearching(false);
+      setSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSearching(true);
+    setSearchError(null);
+
+    chatApi
+      .searchGlobal(debouncedSearch)
+      .then((response) => {
+        if (!cancelled) {
+          setDirectoryChats(response.conversations || []);
+          setDirectoryUsers(response.users || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDirectoryChats([]);
+          setDirectoryUsers([]);
+          setSearchError('Không tải được kết quả tìm kiếm.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsSearching(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, isAuthenticated]);
+
+  const hasSearch = debouncedSearch.length > 0;
+  const localFilteredChats = hasSearch
+    ? chats.filter((item) => {
+        const query = debouncedSearch.toLowerCase();
+        const title = getDisplayTitle(item).toLowerCase();
+        const latestBody = String(item.latestMessage?.body || '').toLowerCase();
+        return title.includes(query) || latestBody.includes(query);
+      })
+    : chats;
+
+  const mergedSearchMap = new Map<number, any>();
+  [...directoryChats, ...localFilteredChats].forEach((item) => {
+    mergedSearchMap.set(Number(item.id), item);
+  });
+  const displayedChats = hasSearch
+    ? Array.from(mergedSearchMap.values())
+    : localFilteredChats;
+
+  const searchRows = hasSearch
+    ? [
+        ...directoryUsers.map((user) => ({ rowType: 'user', item: user })),
+        ...displayedChats.map((chat) => ({ rowType: 'chat', item: chat })),
+      ]
+    : displayedChats.map((chat) => ({ rowType: 'chat', item: chat }));
+
+  const handleOpenDirectUser = async (user: any) => {
+    const userConversationId = Number(user?.conversationId || 0);
+    const userLabel = user.fullName || user.username || 'Người dùng';
+    if (Number.isFinite(userConversationId) && userConversationId > 0) {
+      router.push({
+        pathname: '/chat/[id]',
+        params: { id: userConversationId, name: userLabel },
+      });
+      return;
+    }
+
+    setOpeningUserId(Number(user.id));
+    try {
+      const opened = await chatApi.openDirectConversation(user.username);
+      const conversation = opened?.conversation;
+      if (conversation?.id) {
+        router.push({
+          pathname: '/chat/[id]',
+          params: { id: conversation.id, name: userLabel },
+        });
+        fetchChats();
+      }
+    } catch (error) {
+      console.error('open direct user error', error);
+      Alert.alert('Lỗi', 'Không thể mở hội thoại với người dùng này.');
+    } finally {
+      setOpeningUserId(null);
+    }
   };
 
   if (isInitializing) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#1E3A8A" />
+        <ActivityIndicator size='large' color='#1E3A8A' />
       </View>
     );
   }
@@ -132,62 +380,174 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Search Bar Placeholder */}
+        {/* Search */}
         <View style={styles.searchBar}>
           <Text style={styles.searchIcon}>🔍</Text>
-          <Text style={styles.searchPlaceholder}>Tìm kiếm hội thoại...</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder='Tìm kiếm hội thoại...'
+            placeholderTextColor='#9CA3AF'
+            value={searchInput}
+            onChangeText={setSearchInput}
+            autoCapitalize='none'
+          />
+          {searchInput.length > 0 ? (
+            <TouchableOpacity onPress={() => setSearchInput('')}>
+              <Text style={styles.clearSearch}>✕</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
+        {searchError ? (
+          <Text style={styles.searchError}>{searchError}</Text>
+        ) : null}
 
         <FlatList
-          data={chats}
-          keyExtractor={(item) => item.id.toString()}
+          data={searchRows}
+          keyExtractor={(row) =>
+            `${row.rowType}-${row.rowType === 'user' ? row.item.id : row.item.id}`
+          }
           contentContainerStyle={{ paddingBottom: 20 }}
           refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={['#1E3A8A']} />
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={['#1E3A8A']}
+            />
           }
-          renderItem={({ item }) => {
+          renderItem={({ item: row, index }) => {
+            if (row.rowType === 'user') {
+              const user = row.item;
+              const userName = user.fullName || user.username || 'Người dùng';
+              const userAvatarColor = getAvatarColor(userName);
+              const hasConversation = Number(user.conversationId || 0) > 0;
+              const showUserHeader =
+                index === 0 || searchRows[index - 1]?.rowType !== 'user';
+
+              return (
+                <>
+                  {showUserHeader ? (
+                    <Text style={styles.searchSectionHeader}>Người dùng</Text>
+                  ) : null}
+                  <TouchableOpacity
+                    style={styles.chatCard}
+                    onPress={() => handleOpenDirectUser(user)}
+                    activeOpacity={0.6}
+                    disabled={openingUserId === Number(user.id)}
+                  >
+                    <View
+                      style={[
+                        styles.chatAvatar,
+                        { backgroundColor: userAvatarColor },
+                      ]}
+                    >
+                      <Text style={styles.avatarText}>
+                        {userName[0]?.toUpperCase() || '?'}
+                      </Text>
+                    </View>
+                    <View style={styles.chatInfo}>
+                      <View style={styles.chatTopRow}>
+                        <Text style={styles.chatName} numberOfLines={1}>
+                          {userName}
+                        </Text>
+                      </View>
+                      <Text style={styles.chatPreview} numberOfLines={1}>
+                        @{user.username}{' '}
+                        {hasConversation
+                          ? '• Đã có hội thoại'
+                          : '• Nhấn để nhắn tin'}
+                      </Text>
+                    </View>
+                    {openingUserId === Number(user.id) ? (
+                      <ActivityIndicator size='small' color='#1E3A8A' />
+                    ) : null}
+                  </TouchableOpacity>
+                </>
+              );
+            }
+
+            const item = row.item;
             const displayTitle = getDisplayTitle(item);
             const avatarColor = getAvatarColor(displayTitle);
-            const timeAgo = formatTimeAgo(item.latestMessage?.sentAt || item.latestMessage?.sent_at || item.last_message_at);
+            const timeAgo = formatTimeAgo(
+              item.latestMessage?.sentAt ||
+                item.latestMessage?.sent_at ||
+                item.last_message_at,
+            );
             const isGroup = item.type === 'group';
             const previewBody = item.latestMessage?.body || 'Chưa có tin nhắn';
-            const senderPrefix = isGroup && item.latestMessage?.sender
-              ? `${item.latestMessage.sender.fullName || item.latestMessage.sender.full_name || item.latestMessage.sender.username}: `
-              : '';
+            const senderPrefix =
+              isGroup && item.latestMessage?.sender
+                ? `${item.latestMessage.sender.fullName || item.latestMessage.sender.full_name || item.latestMessage.sender.username}: `
+                : '';
+            const showChatHeader =
+              hasSearch &&
+              (index === 0 || searchRows[index - 1]?.rowType !== 'chat');
 
             return (
-              <TouchableOpacity
-                style={styles.chatCard}
-                onPress={() => router.push({ pathname: '/chat/[id]', params: { id: item.id, name: displayTitle } })}
-                activeOpacity={0.6}
-              >
-                <View style={[styles.chatAvatar, { backgroundColor: avatarColor }]}>
-                  <Text style={styles.avatarText}>
-                    {displayTitle[0].toUpperCase()}
-                  </Text>
-                  {isGroup && <View style={styles.groupBadge}><Text style={styles.groupBadgeText}>👥</Text></View>}
-                </View>
-                <View style={styles.chatInfo}>
-                  <View style={styles.chatTopRow}>
-                    <Text style={styles.chatName} numberOfLines={1}>{displayTitle}</Text>
-                    {timeAgo ? <Text style={styles.chatTime}>{timeAgo}</Text> : null}
+              <>
+                {showChatHeader ? (
+                  <Text style={styles.searchSectionHeader}>Hội thoại</Text>
+                ) : null}
+                <TouchableOpacity
+                  style={styles.chatCard}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/chat/[id]',
+                      params: { id: item.id, name: displayTitle },
+                    })
+                  }
+                  activeOpacity={0.6}
+                >
+                  <View
+                    style={[
+                      styles.chatAvatar,
+                      { backgroundColor: avatarColor },
+                    ]}
+                  >
+                    <Text style={styles.avatarText}>
+                      {displayTitle[0].toUpperCase()}
+                    </Text>
+                    {isGroup && (
+                      <View style={styles.groupBadge}>
+                        <Text style={styles.groupBadgeText}>👥</Text>
+                      </View>
+                    )}
                   </View>
-                  <Text style={styles.chatPreview} numberOfLines={1}>
-                    {senderPrefix}{previewBody}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                  <View style={styles.chatInfo}>
+                    <View style={styles.chatTopRow}>
+                      <Text style={styles.chatName} numberOfLines={1}>
+                        {displayTitle}
+                      </Text>
+                      {timeAgo ? (
+                        <Text style={styles.chatTime}>{timeAgo}</Text>
+                      ) : null}
+                    </View>
+                    <Text style={styles.chatPreview} numberOfLines={1}>
+                      {senderPrefix}
+                      {previewBody}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </>
             );
           }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               {isFetchingChats ? (
-                <ActivityIndicator size="large" color="#1E3A8A" />
+                <ActivityIndicator size='large' color='#1E3A8A' />
+              ) : isSearching ? (
+                <ActivityIndicator size='large' color='#1E3A8A' />
               ) : (
                 <>
                   <Text style={styles.emptyIcon}>📭</Text>
-                  <Text style={styles.emptyText}>Chưa có cuộc trò chuyện nào.</Text>
-                  <Text style={styles.emptyHint}>Kéo xuống để tải lại</Text>
+                  <Text style={styles.emptyText}>
+                    {hasSearch
+                      ? 'Không tìm thấy hội thoại phù hợp.'
+                      : 'Chưa có cuộc trò chuyện nào.'}
+                  </Text>
+                  <Text style={styles.emptyHint}>
+                    {hasSearch ? 'Thử từ khóa khác' : 'Kéo xuống để tải lại'}
+                  </Text>
                 </>
               )}
             </View>
@@ -211,11 +571,11 @@ export default function HomeScreen() {
           <Text style={styles.label}>Tài khoản</Text>
           <TextInput
             style={styles.input}
-            placeholder="Nhập mã nhân viên hoặc username"
-            placeholderTextColor="#9CA3AF"
+            placeholder='Nhập mã nhân viên hoặc username'
+            placeholderTextColor='#9CA3AF'
             value={username}
             onChangeText={setUsername}
-            autoCapitalize="none"
+            autoCapitalize='none'
           />
         </View>
 
@@ -223,8 +583,8 @@ export default function HomeScreen() {
           <Text style={styles.label}>Mật khẩu</Text>
           <TextInput
             style={styles.input}
-            placeholder="Nhập mật khẩu"
-            placeholderTextColor="#9CA3AF"
+            placeholder='Nhập mật khẩu'
+            placeholderTextColor='#9CA3AF'
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -238,7 +598,7 @@ export default function HomeScreen() {
           activeOpacity={0.8}
         >
           {isLoading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color='#fff' />
           ) : (
             <Text style={styles.loginBtnText}>Đăng nhập ngay</Text>
           )}
@@ -252,7 +612,12 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F0F2F5' },
-  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F2F5' },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F0F2F5',
+  },
 
   // Header
   header: {
@@ -265,7 +630,12 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
   headerSubtitle: { color: '#93C5FD', fontSize: 12, marginTop: 2 },
-  logoutBtn: { backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
+  logoutBtn: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
   logoutText: { color: '#FFF', fontSize: 14, fontWeight: '500' },
 
   // Search
@@ -285,7 +655,29 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   searchIcon: { fontSize: 16, marginRight: 10 },
-  searchPlaceholder: { color: '#9CA3AF', fontSize: 15 },
+  searchInput: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 15,
+    paddingVertical: 0,
+  },
+  clearSearch: { color: '#9CA3AF', fontSize: 16, paddingLeft: 8 },
+  searchSectionHeader: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 6,
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  searchError: {
+    color: '#EF4444',
+    fontSize: 13,
+    marginHorizontal: 20,
+    marginTop: -4,
+    marginBottom: 8,
+  },
 
   // Chat List
   chatCard: {
@@ -321,8 +713,19 @@ const styles = StyleSheet.create({
   },
   groupBadgeText: { fontSize: 11 },
   chatInfo: { flex: 1 },
-  chatTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  chatName: { fontSize: 16, fontWeight: '600', color: '#111827', flex: 1, marginRight: 8 },
+  chatTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  chatName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    flex: 1,
+    marginRight: 8,
+  },
   chatTime: { fontSize: 12, color: '#9CA3AF' },
   chatPreview: { fontSize: 14, color: '#6B7280', lineHeight: 20 },
 
@@ -330,7 +733,12 @@ const styles = StyleSheet.create({
   emptyContainer: { padding: 40, alignItems: 'center' },
   emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyText: { textAlign: 'center', color: '#6B7280', fontSize: 16 },
-  emptyHint: { textAlign: 'center', color: '#9CA3AF', fontSize: 13, marginTop: 4 },
+  emptyHint: {
+    textAlign: 'center',
+    color: '#9CA3AF',
+    fontSize: 13,
+    marginTop: 4,
+  },
 
   // Login
   loginContainer: { flex: 1, padding: 30, justifyContent: 'center' },
@@ -350,8 +758,19 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   logoText: { color: '#FFF', fontSize: 44, fontWeight: 'bold' },
-  welcomeTitle: { fontSize: 30, fontWeight: 'bold', color: '#111827', textAlign: 'center', marginBottom: 6 },
-  welcomeSubtitle: { fontSize: 16, color: '#6B7280', textAlign: 'center', marginBottom: 40 },
+  welcomeTitle: {
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  welcomeSubtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 40,
+  },
   formGroup: { marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
   input: {
@@ -377,5 +796,10 @@ const styles = StyleSheet.create({
   },
   loginBtnDisabled: { backgroundColor: '#9CA3AF' },
   loginBtnText: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
-  versionText: { textAlign: 'center', color: '#D1D5DB', fontSize: 12, marginTop: 24 },
+  versionText: {
+    textAlign: 'center',
+    color: '#D1D5DB',
+    fontSize: 12,
+    marginTop: 24,
+  },
 });
