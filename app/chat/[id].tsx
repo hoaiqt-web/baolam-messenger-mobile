@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -16,6 +16,7 @@ import {
   Modal,
   Dimensions,
   Pressable,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -23,6 +24,8 @@ import { httpClient } from '@/services/api/httpClient';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
+import { Audio } from 'expo-av';
 import {
   getLastRealtimeInboundActivityAt,
   getRealtimeConnectionState,
@@ -57,6 +60,45 @@ function formatTime(dateStr: string | null | undefined) {
   const month = (d.getMonth() + 1).toString().padStart(2, '0');
   const year = d.getFullYear();
   return `${hours}:${mins} ${day}/${month}/${year}`;
+}
+
+// Date separator helper (ported from web messenger)
+function formatDateSeparator(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((today.getTime() - msgDate.getTime()) / 86400000);
+  if (diffDays === 0) return 'Hôm nay';
+  if (diffDays === 1) return 'Hôm qua';
+  if (diffDays < 7) {
+    const dayNames = ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+    return dayNames[d.getDay()];
+  }
+  const day = d.getDate().toString().padStart(2, '0');
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  if (d.getFullYear() === now.getFullYear()) return `${day}/${month}`;
+  return `${day}/${month}/${d.getFullYear()}`;
+}
+
+// Notification sound player
+let _notifSound: Audio.Sound | null = null;
+async function playNotificationSound() {
+  try {
+    if (_notifSound) {
+      await _notifSound.replayAsync();
+    } else {
+      const { sound } = await Audio.Sound.createAsync(
+        require('@/assets/sounds/notification.mp3'),
+        { shouldPlay: true, volume: 0.5 },
+      );
+      _notifSound = sound;
+    }
+  } catch {
+    // silently fail
+  }
 }
 
 function getSenderName(item: any): string {
@@ -176,6 +218,12 @@ export default function ChatScreen() {
 
           return deduplicateMessages([incoming, ...withoutOptimistic]);
         });
+
+        // Play notification sound for messages from others
+        const incomingSenderId = incoming.sender_id || incoming.senderId || incoming.sender?.id;
+        if (incomingSenderId && Number(incomingSenderId) !== currentUserId) {
+          void playNotificationSound();
+        }
       },
       undefined,
       undefined,
@@ -491,13 +539,28 @@ export default function ChatScreen() {
       nextMsg?.sender_id || nextMsg?.senderId || nextMsg?.sender?.id;
     const isFirstInGroup = nextSenderId !== senderId;
 
+    // Date separator (FlatList is inverted, so "next" = older message below)
+    const msgDate = formatDateSeparator(item.sentAt || item.sent_at || item.created_at);
+    const nextDate = nextMsg
+      ? formatDateSeparator(nextMsg.sentAt || nextMsg.sent_at || nextMsg.created_at)
+      : null;
+    const showDateSeparator = !nextMsg || msgDate !== nextDate;
+
     return (
-      <View
-        style={[
-          styles.messageRow,
-          isMine ? styles.messageRowMine : styles.messageRowOther,
-        ]}
-      >
+      <View>
+        {showDateSeparator && msgDate ? (
+          <View style={styles.dateSeparator}>
+            <View style={styles.dateSeparatorLine} />
+            <Text style={styles.dateSeparatorText}>{msgDate}</Text>
+            <View style={styles.dateSeparatorLine} />
+          </View>
+        ) : null}
+        <View
+          style={[
+            styles.messageRow,
+            isMine ? styles.messageRowMine : styles.messageRowOther,
+          ]}
+        >
         {!isMine && (
           <View style={styles.avatarCol}>
             {isFirstInGroup ? (
@@ -575,6 +638,7 @@ export default function ChatScreen() {
               {timeStr}
             </Text>
           ) : null}
+        </View>
         </View>
       </View>
     );
@@ -684,36 +748,51 @@ export default function ChatScreen() {
         </KeyboardAvoidingView>
       )}
 
-      {/* Full-screen image preview */}
+      {/* Full-screen image preview with zoom */}
       <Modal
         visible={!!previewImageUrl}
         transparent
         animationType="fade"
         onRequestClose={() => setPreviewImageUrl(null)}
+        statusBarTranslucent
       >
-        <Pressable
-          style={styles.imagePreviewOverlay}
-          onPress={() => setPreviewImageUrl(null)}
-        >
+        <View style={styles.imagePreviewOverlay}>
           <View style={styles.imagePreviewHeader}>
             <TouchableOpacity
               onPress={() => setPreviewImageUrl(null)}
               style={styles.imagePreviewCloseBtn}
             >
-              <Text style={styles.imagePreviewCloseText}>✕</Text>
+              <Ionicons name="close" size={24} color="#FFF" />
             </TouchableOpacity>
           </View>
           {previewImageUrl && (
-            <Image
-              source={{ uri: previewImageUrl }}
-              style={{
-                width: screenWidth,
-                height: screenHeight * 0.75,
-              }}
-              resizeMode="contain"
-            />
+            <ReactNativeZoomableView
+              maxZoom={5}
+              minZoom={1}
+              zoomStep={0.5}
+              initialZoom={1}
+              bindToBorders
+              doubleTapZoomToCenter
+              style={{ flex: 1 }}
+              contentWidth={screenWidth}
+              contentHeight={screenHeight * 0.8}
+            >
+              <Image
+                source={{ uri: previewImageUrl }}
+                style={{
+                  width: screenWidth,
+                  height: screenHeight * 0.8,
+                }}
+                resizeMode="contain"
+              />
+            </ReactNativeZoomableView>
           )}
-        </Pressable>
+          <View style={styles.imagePreviewFooter}>
+            <Text style={styles.imagePreviewHint}>
+              Chạm 2 lần để phóng to • Chụm ngón tay để zoom
+            </Text>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -854,10 +933,10 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   imagePreviewCloseBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -865,5 +944,40 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  imagePreviewFooter: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  imagePreviewHint: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 12,
+  },
+
+  // Date separators
+  dateSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    paddingHorizontal: 20,
+  },
+  dateSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#D1D5DB',
+  },
+  dateSeparatorText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    backgroundColor: '#F0F2F5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
 });
