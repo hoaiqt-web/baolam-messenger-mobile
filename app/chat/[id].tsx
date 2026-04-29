@@ -13,6 +13,9 @@ import {
   Animated,
   AppState,
   Image,
+  Modal,
+  Dimensions,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -103,6 +106,9 @@ export default function ChatScreen() {
   const lastPollAtRef = useRef(0);
 
   const chatTitle = (name as string) || 'Tin nhắn';
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
 
   // Deduplicate messages by ID to prevent "two children with same key" error
   const deduplicateMessages = (msgs: any[]): any[] => {
@@ -531,11 +537,16 @@ export default function ChatScreen() {
                   const imageUrl = attachment?.url;
                   if (isImageAttachment && imageUrl) {
                     return (
-                      <Image
+                      <TouchableOpacity
                         key={key}
-                        source={{ uri: imageUrl }}
-                        style={styles.attachmentImage}
-                      />
+                        activeOpacity={0.8}
+                        onPress={() => setPreviewImageUrl(imageUrl)}
+                      >
+                        <Image
+                          source={{ uri: imageUrl }}
+                          style={styles.attachmentImage}
+                        />
+                      </TouchableOpacity>
                     );
                   }
                   return (
@@ -672,6 +683,38 @@ export default function ChatScreen() {
           </View>
         </KeyboardAvoidingView>
       )}
+
+      {/* Full-screen image preview */}
+      <Modal
+        visible={!!previewImageUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImageUrl(null)}
+      >
+        <Pressable
+          style={styles.imagePreviewOverlay}
+          onPress={() => setPreviewImageUrl(null)}
+        >
+          <View style={styles.imagePreviewHeader}>
+            <TouchableOpacity
+              onPress={() => setPreviewImageUrl(null)}
+              style={styles.imagePreviewCloseBtn}
+            >
+              <Text style={styles.imagePreviewCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {previewImageUrl && (
+            <Image
+              source={{ uri: previewImageUrl }}
+              style={{
+                width: screenWidth,
+                height: screenHeight * 0.75,
+              }}
+              resizeMode="contain"
+            />
+          )}
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -796,4 +839,31 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { backgroundColor: '#CBD5E1' },
   sendBtnIcon: { color: '#FFFFFF', fontSize: 20, marginLeft: 2 },
+
+  // Full-screen image preview
+  imagePreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewHeader: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  imagePreviewCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewCloseText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
 });
