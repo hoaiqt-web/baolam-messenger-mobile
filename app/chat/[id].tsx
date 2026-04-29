@@ -149,6 +149,7 @@ export default function ChatScreen() {
 
   const chatTitle = (name as string) || 'Tin nhắn';
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [replyTarget, setReplyTarget] = useState<any>(null);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
 
@@ -317,12 +318,63 @@ export default function ChatScreen() {
     ]).start();
   };
 
+  const handleRecall = async (message: any) => {
+    const messageId = Number(message.id);
+    if (!messageId) return;
+    Alert.alert('Thu hồi tin nhắn', 'Bạn muốn thu hồi tin nhắn này?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Thu hồi',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await httpClient.post(`/conversations/${conversationId}/messages/${messageId}/recall`);
+            setMessages((prev) =>
+              prev.map((msg) =>
+                Number(msg.id) === messageId
+                  ? { ...msg, isRecalled: true, body: '' }
+                  : msg,
+              ),
+            );
+          } catch {
+            Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn.');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleLongPressMessage = (item: any) => {
+    const senderId = item.sender_id || item.senderId || item.sender?.id;
+    const isMine = senderId === currentUserId;
+    const isRecalled = item.isRecalled || item.is_recalled;
+    if (isRecalled) return;
+
+    const options: { text: string; onPress: () => void; style?: 'cancel' | 'destructive' }[] = [
+      {
+        text: '↩️ Trả lời',
+        onPress: () => setReplyTarget(item),
+      },
+    ];
+    if (isMine) {
+      options.push({
+        text: '🗑️ Thu hồi',
+        style: 'destructive',
+        onPress: () => handleRecall(item),
+      });
+    }
+    options.push({ text: 'Đóng', onPress: () => {}, style: 'cancel' });
+    Alert.alert('Tùy chọn', undefined, options);
+  };
+
   const handleSend = async () => {
     if (!inputText.trim() || isSending) return;
     animateSendButton();
 
     const textToSend = inputText.trim();
+    const replyToId = replyTarget ? Number(replyTarget.id) : undefined;
     setInputText('');
+    setReplyTarget(null);
     setIsSending(true);
 
     const tempId = `temp-${Date.now()}`;
@@ -334,14 +386,25 @@ export default function ChatScreen() {
       sent_at: new Date().toISOString(),
       is_optimistic: true,
       sender: { id: currentUserId, fullName: 'Bạn' },
+      replyTo: replyTarget
+        ? {
+            id: replyTarget.id,
+            body: replyTarget.body,
+            sender: replyTarget.sender,
+          }
+        : null,
     };
     setMessages((prev) => [optimisticMessage, ...prev]);
 
     try {
-      const { data } = await httpClient.post(`/conversations/${id}/messages`, {
+      const payload: any = {
         body: textToSend,
         client_message_id: tempId,
-      });
+      };
+      if (replyToId) {
+        payload.replyToMessageId = replyToId;
+      }
+      const { data } = await httpClient.post(`/conversations/${id}/messages`, payload);
       const actualMessage = data.message || data.data || data;
       setMessages((prev) =>
         prev.map((msg) => (msg.id === tempId ? actualMessage : msg)),
@@ -546,6 +609,14 @@ export default function ChatScreen() {
       : null;
     const showDateSeparator = !nextMsg || msgDate !== nextDate;
 
+    // Recalled message
+    const isRecalled = item.isRecalled || item.is_recalled;
+
+    // Reply quote
+    const replyTo = item.replyTo || item.reply_to;
+    const replySnippet = replyTo?.body ? replyTo.body.slice(0, 80) : null;
+    const replySenderName = replyTo?.sender?.fullName || replyTo?.sender?.full_name || replyTo?.sender?.username || '';
+
     return (
       <View>
         {showDateSeparator && msgDate ? (
@@ -576,20 +647,38 @@ export default function ChatScreen() {
             )}
           </View>
         )}
-        <View style={[styles.bubbleCol, isMine && styles.bubbleColMine]}>
+        <TouchableOpacity
+          style={[styles.bubbleCol, isMine && styles.bubbleColMine]}
+          activeOpacity={0.7}
+          onLongPress={() => handleLongPressMessage(item)}
+          delayLongPress={400}
+        >
           {!isMine && isFirstInGroup && (
             <Text style={[styles.senderLabel, { color: avatarColor }]}>
               {senderName}
             </Text>
           )}
+          {/* Reply quote */}
+          {replyTo && replySnippet ? (
+            <View style={styles.replyQuote}>
+              <View style={styles.replyQuoteBar} />
+              <View style={styles.replyQuoteContent}>
+                <Text style={styles.replyQuoteSender}>{replySenderName}</Text>
+                <Text style={styles.replyQuoteText} numberOfLines={2}>{replySnippet}</Text>
+              </View>
+            </View>
+          ) : null}
           <View
             style={[
               styles.bubble,
               isMine ? styles.bubbleMine : styles.bubbleOther,
+              isRecalled && styles.bubbleRecalled,
               item.is_optimistic && styles.bubbleOptimistic,
             ]}
           >
-            {attachments.length > 0 ? (
+            {isRecalled ? (
+              <Text style={styles.recalledText}>Tin nhắn đã thu hồi</Text>
+            ) : attachments.length > 0 ? (
               <View style={styles.attachmentList}>
                 {attachments.map((attachment: any, attachmentIndex: number) => {
                   const key = attachment?.id || `att-${attachmentIndex}`;
@@ -625,7 +714,7 @@ export default function ChatScreen() {
                 })}
               </View>
             ) : null}
-            {hasText ? (
+            {!isRecalled && hasText ? (
               <Text
                 style={[styles.bubbleText, isMine && styles.bubbleTextMine]}
               >
@@ -638,7 +727,7 @@ export default function ChatScreen() {
               {timeStr}
             </Text>
           ) : null}
-        </View>
+        </TouchableOpacity>
         </View>
       </View>
     );
@@ -688,6 +777,26 @@ export default function ChatScreen() {
             }
           />
 
+          {/* Reply preview bar */}
+          {replyTarget && (
+            <View style={styles.replyPreview}>
+              <View style={styles.replyPreviewBar} />
+              <View style={styles.replyPreviewContent}>
+                <Text style={styles.replyPreviewSender}>
+                  {getSenderName(replyTarget)}
+                </Text>
+                <Text style={styles.replyPreviewText} numberOfLines={1}>
+                  {(replyTarget.body || '').slice(0, 60) || 'Ảnh / File'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setReplyTarget(null)}
+                style={styles.replyPreviewClose}
+              >
+                <Ionicons name="close" size={18} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={styles.inputBar}>
             <TouchableOpacity
               style={[
@@ -979,5 +1088,83 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     overflow: 'hidden',
+  },
+
+  // Reply quote in message bubble
+  replyQuote: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    borderRadius: 8,
+    marginBottom: 4,
+    overflow: 'hidden',
+  },
+  replyQuoteBar: {
+    width: 3,
+    backgroundColor: '#1E3A8A',
+    borderRadius: 2,
+  },
+  replyQuoteContent: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  replyQuoteSender: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E3A8A',
+    marginBottom: 1,
+  },
+  replyQuoteText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+
+  // Reply preview bar above input
+  replyPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F4FF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  replyPreviewBar: {
+    width: 3,
+    height: '100%',
+    backgroundColor: '#1E3A8A',
+    borderRadius: 2,
+    marginRight: 8,
+    minHeight: 30,
+  },
+  replyPreviewContent: {
+    flex: 1,
+  },
+  replyPreviewSender: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1E3A8A',
+  },
+  replyPreviewText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  replyPreviewClose: {
+    padding: 4,
+    marginLeft: 8,
+  },
+
+  // Recalled message
+  bubbleRecalled: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderStyle: 'dashed',
+  },
+  recalledText: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
   },
 });
