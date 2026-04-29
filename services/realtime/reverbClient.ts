@@ -1,11 +1,27 @@
 import Echo from 'laravel-echo';
-import Pusher from 'pusher-js/react-native';
+import { Platform } from 'react-native';
 
 import { authStorage } from '@/features/auth/authStorage';
 import { env } from '@/shared/config/env';
 
-// React Native: assign Pusher to global scope (no window in RN)
-(globalThis as any).Pusher = Pusher;
+function resolvePusherConstructor(mod: any) {
+  if (typeof mod === 'function') {
+    return mod;
+  }
+  if (mod && typeof mod.default === 'function') {
+    return mod.default;
+  }
+  if (mod && typeof mod.Pusher === 'function') {
+    return mod.Pusher;
+  }
+  throw new Error('Invalid Pusher module export.');
+}
+
+// Metro/Hermes interop can return namespace objects; normalize to a callable constructor.
+const pusherModule =
+  Platform.OS === 'web' ? require('pusher-js') : require('pusher-js/react-native');
+const PusherCtor = resolvePusherConstructor(pusherModule);
+(globalThis as any).Pusher = PusherCtor;
 
 type ReverbMessageEventPayload = {
   message: {
@@ -99,7 +115,7 @@ type ReverbMessageReactionUpdatedPayload = {
   conversationId: number;
   reactionType: string;
   userId: number;
-  action: "added" | "removed";
+  action: 'added' | 'removed';
   reactions_summary: Record<string, number>;
 };
 
@@ -217,13 +233,10 @@ function getEchoClient(): Echo<'reverb'> | null {
               callback(false, payload);
             })
             .catch((error) => {
-              callback(
-                true,
-                {
-                  message: 'Realtime auth request failed.',
-                  error: error instanceof Error ? error.message : String(error),
-                },
-              );
+              callback(true, {
+                message: 'Realtime auth request failed.',
+                error: error instanceof Error ? error.message : String(error),
+              });
             });
         },
       }),
@@ -298,7 +311,8 @@ export function getReverbSocketId(): string | null {
     return echoSocketId;
   }
 
-  const fallbackSocketId = (echo.connector as any)?.pusher?.connection?.socket_id;
+  const fallbackSocketId = (echo.connector as any)?.pusher?.connection
+    ?.socket_id;
   if (typeof fallbackSocketId === 'string' && fallbackSocketId.length > 0) {
     return fallbackSocketId;
   }
@@ -362,7 +376,9 @@ export function subscribeConversationMessages(
     | ((payload: ReverbMessageReactionUpdatedPayload) => void)
     | undefined;
   if (onReactionUpdated) {
-    onReactionUpdatedWithHeartbeat = (payload: ReverbMessageReactionUpdatedPayload) => {
+    onReactionUpdatedWithHeartbeat = (
+      payload: ReverbMessageReactionUpdatedPayload,
+    ) => {
       markRealtimeInboundActivity();
       onReactionUpdated(payload);
     };
@@ -372,7 +388,9 @@ export function subscribeConversationMessages(
     | ((payload: ReverbConversationReadUpdatedPayload) => void)
     | undefined;
   if (onReadUpdated) {
-    onReadUpdatedWithHeartbeat = (payload: ReverbConversationReadUpdatedPayload) => {
+    onReadUpdatedWithHeartbeat = (
+      payload: ReverbConversationReadUpdatedPayload,
+    ) => {
       markRealtimeInboundActivity();
       onReadUpdated(payload);
     };
@@ -391,10 +409,16 @@ export function subscribeConversationMessages(
       channel.stopListening('.message.recalled', onRecalledWithHeartbeat);
     }
     if (onReactionUpdatedWithHeartbeat) {
-      channel.stopListening('.message.reaction.updated', onReactionUpdatedWithHeartbeat);
+      channel.stopListening(
+        '.message.reaction.updated',
+        onReactionUpdatedWithHeartbeat,
+      );
     }
     if (onReadUpdatedWithHeartbeat) {
-      channel.stopListening('.conversation.read.updated', onReadUpdatedWithHeartbeat);
+      channel.stopListening(
+        '.conversation.read.updated',
+        onReadUpdatedWithHeartbeat,
+      );
     }
     echo.leave(channelName);
   };
