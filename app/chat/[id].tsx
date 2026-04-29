@@ -91,7 +91,7 @@ async function playNotificationSound() {
       await _notifSound.replayAsync();
     } else {
       const { sound } = await Audio.Sound.createAsync(
-        require('@/assets/sounds/notification.mp3'),
+        require('../../assets/sounds/notification.mp3'),
         { shouldPlay: true, volume: 0.5 },
       );
       _notifSound = sound;
