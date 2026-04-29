@@ -351,6 +351,7 @@ export default function ChatScreen() {
   };
 
   const handleToggleReaction = async (item: any, emoji: string) => {
+    if (!item) return;
     const messageId = Number(item.id);
     if (!messageId) return;
 
@@ -380,7 +381,8 @@ export default function ChatScreen() {
 
     try {
       await httpClient.post(`/messages/${messageId}/reactions`, { type: emoji });
-    } catch {
+    } catch (err: any) {
+      console.error('Reaction failed:', err?.response?.status, err?.response?.data, err?.message);
       // revert on failure
       setMessages((prev) =>
         prev.map((msg) =>
