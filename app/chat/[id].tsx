@@ -18,6 +18,7 @@ import {
   Pressable,
   StatusBar,
 } from 'react-native';
+import { Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { httpClient } from '@/services/api/httpClient';
@@ -163,6 +164,8 @@ export default function ChatScreen() {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [replyTarget, setReplyTarget] = useState<any>(null);
   const [menuTarget, setMenuTarget] = useState<any>(null);
+  const [forwardSource, setForwardSource] = useState<any>(null);
+  const [forwardConversations, setForwardConversations] = useState<any[]>([]);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
 
@@ -410,6 +413,35 @@ export default function ChatScreen() {
     const isRecalled = item.isRecalled || item.is_recalled;
     if (isRecalled) return;
     setMenuTarget(item);
+  };
+
+  // Forward: load conversations when forward source is set
+  useEffect(() => {
+    if (!forwardSource) return;
+    httpClient.get('/conversations')
+      .then(({ data }) => setForwardConversations(data.conversations || data || []))
+      .catch(() => setForwardConversations([]));
+  }, [forwardSource]);
+
+  const handleForwardTo = async (targetConvId: number) => {
+    if (!forwardSource) return;
+    try {
+      const forwardedFrom = {
+        id: forwardSource.id,
+        body: forwardSource.body || '',
+        sender: forwardSource.sender || { id: 0, username: '', fullName: '' },
+        attachments: forwardSource.attachments || [],
+        isRecalled: false,
+      };
+      await httpClient.post(`/conversations/${targetConvId}/messages`, {
+        body: '',
+        forwardedFrom,
+      });
+      Alert.alert('✅', 'Đã chuyển tiếp tin nhắn');
+    } catch {
+      Alert.alert('Lỗi', 'Không thể chuyển tiếp');
+    }
+    setForwardSource(null);
   };
 
   const handleSend = async () => {
@@ -747,14 +779,21 @@ export default function ChatScreen() {
                     );
                   }
                   return (
-                    <View key={key} style={styles.fileAttachmentCard}>
+                    <TouchableOpacity
+                      key={key}
+                      style={styles.fileAttachmentCard}
+                      onPress={() => {
+                        const fileUrl = attachment?.url || attachment?.downloadUrl;
+                        if (fileUrl) Linking.openURL(fileUrl).catch(() => {});
+                      }}
+                    >
                       <Text style={styles.fileAttachmentName} numberOfLines={1}>
-                        {attachment?.originalName || 'Tệp đính kèm'}
+                        📄 {attachment?.originalName || 'Tệp đính kèm'}
                       </Text>
                       <Text style={styles.fileAttachmentMeta}>
-                        {formatFileSize(attachment?.size)}
+                        {formatFileSize(attachment?.size)} • Nhấn để tải
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -1036,6 +1075,38 @@ export default function ChatScreen() {
               </TouchableOpacity>
             )}
 
+            {/* Forward */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setForwardSource(menuTarget);
+                setMenuTarget(null);
+              }}
+            >
+              <Text style={styles.menuItemIcon}>↪️</Text>
+              <Text style={styles.menuItemText}>Chuyển tiếp</Text>
+            </TouchableOpacity>
+
+            {/* Pin */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={async () => {
+                const msgId = Number(menuTarget?.id);
+                if (msgId && conversationId > 0) {
+                  try {
+                    await httpClient.post(`/conversations/${conversationId}/messages/${msgId}/pin`);
+                    Alert.alert('✅', 'Đã ghim tin nhắn');
+                  } catch {
+                    Alert.alert('Lỗi', 'Không thể ghim tin nhắn');
+                  }
+                }
+                setMenuTarget(null);
+              }}
+            >
+              <Text style={styles.menuItemIcon}>📌</Text>
+              <Text style={styles.menuItemText}>Ghim tin nhắn</Text>
+            </TouchableOpacity>
+
             {(() => {
               const senderId = menuTarget?.sender_id || menuTarget?.senderId || menuTarget?.sender?.id;
               return senderId === currentUserId ? (
@@ -1057,6 +1128,54 @@ export default function ChatScreen() {
             <TouchableOpacity
               style={styles.menuItem}
               onPress={() => setMenuTarget(null)}
+            >
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Forward conversation picker */}
+      <Modal
+        visible={!!forwardSource}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setForwardSource(null)}
+      >
+        <TouchableOpacity
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setForwardSource(null)}
+        >
+          <View style={[styles.menuSheet, { maxHeight: screenHeight * 0.6 }]}>
+            <Text style={styles.forwardTitle}>↪️ Chuyển tiếp đến...</Text>
+            <View style={styles.menuDivider} />
+            <FlatList
+              data={forwardConversations}
+              keyExtractor={(c) => String(c.id)}
+              renderItem={({ item: conv }) => {
+                const convTitle = conv.name || conv.label || `Hội thoại #${conv.id}`;
+                return (
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    onPress={() => handleForwardTo(Number(conv.id))}
+                  >
+                    <Text style={styles.menuItemIcon}>💬</Text>
+                    <Text style={styles.menuItemText} numberOfLines={1}>{convTitle}</Text>
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color="#1E3A8A" />
+                  <Text style={{ color: '#9CA3AF', marginTop: 8 }}>Đang tải...</Text>
+                </View>
+              }
+            />
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => setForwardSource(null)}
             >
               <Text style={styles.menuItemIcon}>✕</Text>
               <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
@@ -1421,5 +1540,12 @@ const styles = StyleSheet.create({
   },
   menuItemTextDanger: {
     color: '#EF4444',
+  },
+  forwardTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    paddingVertical: 12,
   },
 });
