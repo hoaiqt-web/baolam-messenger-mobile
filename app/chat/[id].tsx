@@ -129,6 +129,18 @@ async function appendUploadedMessage(setMessages: any, payload: any) {
 }
 
 export default function ChatScreen() {
+  // Reaction code ↔ emoji mapping (matches web ReactionPicker.tsx)
+  const REACTION_MAP: { code: string; emoji: string }[] = [
+    { code: 'LIKE', emoji: '👍' },
+    { code: 'LOVE', emoji: '❤️' },
+    { code: 'HAHA', emoji: '😆' },
+    { code: 'ANGRY', emoji: '😡' },
+    { code: 'CRY', emoji: '😭' },
+    { code: 'SAD', emoji: '😢' },
+  ];
+  const emojiToCode = (emoji: string) => REACTION_MAP.find((r) => r.emoji === emoji)?.code || emoji;
+  const codeToEmoji = (code: string) => REACTION_MAP.find((r) => r.code === code)?.emoji || code;
+
   const REALTIME_IDLE_THRESHOLD_MS = 15_000;
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
   const POLL_INTERVAL_DEGRADED_MS = 5_000;
@@ -354,36 +366,36 @@ export default function ChatScreen() {
     if (!item) return;
     const messageId = Number(item.id);
     if (!messageId) return;
+    const reactionCode = emojiToCode(emoji);
 
-    // Optimistic update
+    // Optimistic update using CODE (not emoji)
     const oldSummary = item.reactions_summary || {};
     const newSummary = { ...oldSummary };
-    const wasReacted = item.user_reaction === emoji;
+    const wasReacted = item.user_reaction === reactionCode;
 
     if (wasReacted) {
-      newSummary[emoji] = Math.max(0, (newSummary[emoji] || 1) - 1);
-      if (newSummary[emoji] === 0) delete newSummary[emoji];
+      newSummary[reactionCode] = Math.max(0, (newSummary[reactionCode] || 1) - 1);
+      if (newSummary[reactionCode] === 0) delete newSummary[reactionCode];
     } else {
       if (item.user_reaction && newSummary[item.user_reaction]) {
         newSummary[item.user_reaction] = Math.max(0, newSummary[item.user_reaction] - 1);
         if (newSummary[item.user_reaction] === 0) delete newSummary[item.user_reaction];
       }
-      newSummary[emoji] = (newSummary[emoji] || 0) + 1;
+      newSummary[reactionCode] = (newSummary[reactionCode] || 0) + 1;
     }
 
     setMessages((prev) =>
       prev.map((msg) =>
         Number(msg.id) === messageId
-          ? { ...msg, reactions_summary: newSummary, user_reaction: wasReacted ? null : emoji }
+          ? { ...msg, reactions_summary: newSummary, user_reaction: wasReacted ? null : reactionCode }
           : msg,
       ),
     );
 
     try {
-      await httpClient.post(`/messages/${messageId}/reactions`, { type: emoji });
+      await httpClient.post(`/messages/${messageId}/reactions`, { type: reactionCode });
     } catch (err: any) {
       console.error('Reaction failed:', err?.response?.status, err?.response?.data, err?.message);
-      // revert on failure
       setMessages((prev) =>
         prev.map((msg) =>
           Number(msg.id) === messageId
@@ -758,16 +770,16 @@ export default function ChatScreen() {
           {/* Reactions summary */}
           {!isRecalled && item.reactions_summary && Object.keys(item.reactions_summary).length > 0 && (
             <View style={[styles.reactionsRow, isMine && styles.reactionsRowMine]}>
-              {Object.entries(item.reactions_summary).map(([emoji, count]: [string, any]) => (
+              {Object.entries(item.reactions_summary).map(([code, count]: [string, any]) => (
                 <TouchableOpacity
-                  key={emoji}
+                  key={code}
                   style={[
                     styles.reactionBadge,
-                    item.user_reaction === emoji && styles.reactionBadgeActive,
+                    item.user_reaction === code && styles.reactionBadgeActive,
                   ]}
-                  onPress={() => handleToggleReaction(item, emoji)}
+                  onPress={() => handleToggleReaction(item, codeToEmoji(code))}
                 >
-                  <Text style={styles.reactionEmoji}>{emoji}</Text>
+                  <Text style={styles.reactionEmoji}>{codeToEmoji(code)}</Text>
                   {Number(count) > 1 && <Text style={styles.reactionCount}>{count}</Text>}
                 </TouchableOpacity>
               ))}
@@ -977,12 +989,12 @@ export default function ChatScreen() {
           <View style={styles.menuSheet}>
             {/* Quick reactions row */}
             <View style={styles.menuReactionsRow}>
-              {['👍', '❤️', '😂', '😢', '😡', '🎉'].map((emoji) => (
+              {REACTION_MAP.map(({ code, emoji }) => (
                 <TouchableOpacity
-                  key={emoji}
+                  key={code}
                   style={[
                     styles.menuReactionBtn,
-                    menuTarget?.user_reaction === emoji && styles.menuReactionBtnActive,
+                    menuTarget?.user_reaction === code && styles.menuReactionBtnActive,
                   ]}
                   onPress={() => {
                     handleToggleReaction(menuTarget, emoji);
