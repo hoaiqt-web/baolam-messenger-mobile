@@ -255,15 +255,26 @@ export default function HomeScreen() {
 
   const getDisplayTitle = (item: any) => {
     // For direct chats: always show the other person's name
+    // API returns participants as flat objects: { id, username, fullName, ... }
+    // NOT nested: { user: { id, username } }
     if (item.type === 'direct' && item.participants) {
       const other = item.participants.find(
-        (p: any) => p.user?.id !== currentUserId && p.user?.username !== username,
+        (p: any) => {
+          const pid = p.id || p.user?.id;
+          const pUsername = p.username || p.user?.username;
+          return Number(pid) !== Number(currentUserId) && pUsername !== username;
+        },
       );
-      const otherName =
-        other?.user?.full_name ||
-        other?.user?.fullName ||
-        other?.user?.username;
-      if (otherName) return otherName;
+      if (other) {
+        const otherName =
+          other.fullName ||
+          other.full_name ||
+          other.user?.fullName ||
+          other.user?.full_name ||
+          other.username ||
+          other.user?.username;
+        if (otherName) return otherName;
+      }
     }
     // For groups or when participant lookup fails
     if (item.name && item.name !== 'Trò chuyện riêng') return item.name;
