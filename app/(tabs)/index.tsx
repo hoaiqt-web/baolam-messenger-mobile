@@ -23,6 +23,7 @@ import {
   getLastRealtimeInboundActivityAt,
   getRealtimeConnectionState,
   subscribeUserInboxMessages,
+  closeReverbClient,
 } from '@/services/realtime/reverbClient';
 
 // Color palette for avatars
@@ -179,6 +180,14 @@ export default function HomeScreen() {
   };
 
   const handleLogout = async () => {
+    // Close WebSocket before clearing auth to avoid reconnect attempts
+    closeReverbClient();
+    // Revoke session on server (best-effort: don't block UI if server unreachable)
+    try {
+      await authApi.logout();
+    } catch {
+      // Server may be unreachable — still clear local session
+    }
     await authStorage.clearToken();
     setIsAuthenticated(false);
     setChats([]);
