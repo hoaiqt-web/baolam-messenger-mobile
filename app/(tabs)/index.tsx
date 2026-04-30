@@ -813,8 +813,7 @@ const styles = StyleSheet.create({
   // Banner
   bannerImage: {
     width: '100%',
-    aspectRatio: 3035 / 829, // original image ratio
-    maxHeight: 70,
+    height: 90,
   },
 
   // Search row (below banner)
