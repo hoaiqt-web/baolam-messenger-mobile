@@ -521,7 +521,7 @@ export default function HomeScreen() {
                   onPress={() =>
                     router.push({
                       pathname: '/chat/[id]',
-                      params: { id: item.id, name: displayTitle },
+                      params: { id: item.id, name: displayTitle, type: item.type || 'direct' },
                     })
                   }
                   activeOpacity={0.6}

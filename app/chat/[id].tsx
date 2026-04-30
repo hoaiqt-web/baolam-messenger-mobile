@@ -145,7 +145,7 @@ export default function ChatScreen() {
   const REALTIME_IDLE_THRESHOLD_MS = 15_000;
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
   const POLL_INTERVAL_DEGRADED_MS = 5_000;
-  const { id, name } = useLocalSearchParams();
+  const { id, name, type } = useLocalSearchParams();
   const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
@@ -161,6 +161,7 @@ export default function ChatScreen() {
   const lastPollAtRef = useRef(0);
 
   const chatTitle = (name as string) || 'Tin nhắn';
+  const isGroup = type === 'group';
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [replyTarget, setReplyTarget] = useState<any>(null);
   const [menuTarget, setMenuTarget] = useState<any>(null);
@@ -170,6 +171,16 @@ export default function ChatScreen() {
   const [mentionSuggestions, setMentionSuggestions] = useState<any[]>([]);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
+
+  // Group management state
+  const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [groupMembers, setGroupMembers] = useState<any[]>([]);
+  const [groupNameInput, setGroupNameInput] = useState(chatTitle);
+  const [isRenamingGroup, setIsRenamingGroup] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [addMemberSearch, setAddMemberSearch] = useState('');
+  const [addMemberResults, setAddMemberResults] = useState<any[]>([]);
+  const [isAddingMember, setIsAddingMember] = useState(false);
 
   // Deduplicate messages by ID to prevent "two children with same key" error
   const deduplicateMessages = (msgs: any[]): any[] => {
@@ -408,6 +419,120 @@ export default function ChatScreen() {
             : msg,
         ),
       );
+    }
+  };
+
+  // ===== GROUP MANAGEMENT HANDLERS =====
+  const fetchGroupMembers = async () => {
+    try {
+      const { data } = await httpClient.get(`/conversations/${conversationId}/participants`);
+      setGroupMembers(data.participants || data || []);
+    } catch {
+      setGroupMembers([]);
+    }
+  };
+
+  const handleOpenGroupSettings = () => {
+    setGroupNameInput(chatTitle);
+    fetchGroupMembers();
+    setShowGroupSettings(true);
+  };
+
+  const handleRenameGroup = async () => {
+    const newName = groupNameInput.trim();
+    if (!newName || newName === chatTitle) return;
+    setIsRenamingGroup(true);
+    try {
+      await httpClient.put(`/conversations/${conversationId}/name`, { name: newName });
+      Alert.alert('✅', `Đã đổi tên nhóm thành "${newName}"`);
+      router.setParams({ name: newName });
+    } catch {
+      Alert.alert('Lỗi', 'Không thể đổi tên nhóm');
+    } finally {
+      setIsRenamingGroup(false);
+    }
+  };
+
+  const handleRemoveMember = (member: any) => {
+    const memberName = member.fullName || member.full_name || member.username;
+    Alert.alert(
+      'Xóa thành viên',
+      `Bạn có chắc muốn xóa "${memberName}" khỏi nhóm?`,
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await httpClient.delete(`/conversations/${conversationId}/members/${member.id}`);
+              setGroupMembers((prev) => prev.filter((m) => m.id !== member.id));
+              Alert.alert('✅', `Đã xóa ${memberName}`);
+            } catch {
+              Alert.alert('Lỗi', 'Không thể xóa thành viên');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleSearchAddMember = async (query: string) => {
+    setAddMemberSearch(query);
+    if (query.length < 1) {
+      setAddMemberResults([]);
+      return;
+    }
+    try {
+      const { data } = await httpClient.get('/users/search', { params: { query } });
+      const users = data.users || data || [];
+      // Filter out existing members
+      const memberIds = new Set(groupMembers.map((m: any) => m.id));
+      setAddMemberResults(users.filter((u: any) => !memberIds.has(u.id)));
+    } catch {
+      setAddMemberResults([]);
+    }
+  };
+
+  const handleAddMember = async (user: any) => {
+    setIsAddingMember(true);
+    try {
+      await httpClient.post(`/conversations/${conversationId}/members`, { userIds: [user.id] });
+      const memberName = user.fullName || user.full_name || user.username;
+      Alert.alert('✅', `Đã thêm ${memberName} vào nhóm`);
+      setAddMemberSearch('');
+      setAddMemberResults([]);
+      setShowAddMember(false);
+      fetchGroupMembers();
+    } catch {
+      Alert.alert('Lỗi', 'Không thể thêm thành viên');
+    } finally {
+      setIsAddingMember(false);
+    }
+  };
+
+  const handleChangeGroupAvatar = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.8,
+        allowsEditing: true,
+        aspect: [1, 1],
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      const formData = new FormData();
+      formData.append('avatar', {
+        uri: asset.uri,
+        name: `avatar-${Date.now()}.jpg`,
+        type: 'image/jpeg',
+      } as any);
+      await httpClient.post(`/conversations/${conversationId}/avatar`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      Alert.alert('✅', 'Đã cập nhật ảnh nhóm');
+    } catch {
+      Alert.alert('Lỗi', 'Không thể đổi ảnh nhóm');
     }
   };
 
@@ -854,9 +979,16 @@ export default function ChatScreen() {
           headerTintColor: '#FFFFFF',
           headerTitleStyle: { fontWeight: 'bold', fontSize: 18 },
           headerRight: () => (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E', marginRight: 6 }} />
-              <Text style={{ color: '#93C5FD', fontSize: 11 }}>Online</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8, gap: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E', marginRight: 4 }} />
+                <Text style={{ color: '#93C5FD', fontSize: 11 }}>Online</Text>
+              </View>
+              {isGroup && (
+                <TouchableOpacity onPress={handleOpenGroupSettings}>
+                  <Ionicons name="settings-outline" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
             </View>
           ),
         }}
@@ -1234,6 +1366,208 @@ export default function ChatScreen() {
             <TouchableOpacity
               style={styles.menuItem}
               onPress={() => setForwardSource(null)}
+            >
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== GROUP SETTINGS MODAL ===== */}
+      <Modal
+        visible={showGroupSettings}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowGroupSettings(false)}
+      >
+        <TouchableOpacity
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowGroupSettings(false)}
+        >
+          <View style={[styles.menuSheet, { maxHeight: screenHeight * 0.75 }]}>
+            <Text style={styles.forwardTitle}>⚙️ Cài đặt nhóm</Text>
+            <View style={styles.menuDivider} />
+
+            {/* Rename Group */}
+            <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
+              <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Tên nhóm</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TextInput
+                  style={{
+                    flex: 1,
+                    borderWidth: 1,
+                    borderColor: '#D1D5DB',
+                    borderRadius: 8,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    fontSize: 14,
+                    color: '#111827',
+                  }}
+                  value={groupNameInput}
+                  onChangeText={setGroupNameInput}
+                  placeholder="Nhập tên nhóm..."
+                />
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: '#1E3A8A',
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 6,
+                    opacity: isRenamingGroup ? 0.5 : 1,
+                  }}
+                  onPress={handleRenameGroup}
+                  disabled={isRenamingGroup}
+                >
+                  <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '600' }}>
+                    {isRenamingGroup ? '...' : 'Đổi'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.menuDivider} />
+
+            {/* Change Avatar */}
+            <TouchableOpacity style={styles.menuItem} onPress={handleChangeGroupAvatar}>
+              <Text style={styles.menuItemIcon}>🖼️</Text>
+              <Text style={styles.menuItemText}>Đổi ảnh đại diện nhóm</Text>
+            </TouchableOpacity>
+
+            <View style={styles.menuDivider} />
+
+            {/* Members */}
+            <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151' }}>
+                  Thành viên ({groupMembers.length})
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setShowAddMember(true)}
+                  style={{ backgroundColor: '#1E3A8A', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 }}
+                >
+                  <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '600' }}>+ Thêm</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <FlatList
+              data={groupMembers}
+              keyExtractor={(m) => String(m.id)}
+              style={{ maxHeight: 200 }}
+              renderItem={({ item: member }) => {
+                const mName = member.fullName || member.full_name || member.username;
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 }}>
+                    <View style={{
+                      width: 32, height: 32, borderRadius: 16,
+                      backgroundColor: getAvatarColor(mName),
+                      justifyContent: 'center', alignItems: 'center', marginRight: 10,
+                    }}>
+                      <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '600' }}>
+                        {mName[0]?.toUpperCase() || '?'}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, color: '#1A1A1A' }}>{mName}</Text>
+                      <Text style={{ fontSize: 11, color: '#9CA3AF' }}>@{member.username}</Text>
+                    </View>
+                    {member.id !== currentUserId && (
+                      <TouchableOpacity onPress={() => handleRemoveMember(member)}>
+                        <Ionicons name="close-circle-outline" size={20} color="#EF4444" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              }}
+            />
+
+            <View style={styles.menuDivider} />
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => setShowGroupSettings(false)}
+            >
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== ADD MEMBER MODAL ===== */}
+      <Modal
+        visible={showAddMember}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAddMember(false)}
+      >
+        <TouchableOpacity
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowAddMember(false)}
+        >
+          <View style={[styles.menuSheet, { maxHeight: screenHeight * 0.6 }]}>
+            <Text style={styles.forwardTitle}>👥 Thêm thành viên</Text>
+            <View style={styles.menuDivider} />
+            <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+              <TextInput
+                style={{
+                  borderWidth: 1,
+                  borderColor: '#D1D5DB',
+                  borderRadius: 8,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  fontSize: 14,
+                  color: '#111827',
+                }}
+                placeholder="Tìm người dùng..."
+                placeholderTextColor="#9CA3AF"
+                value={addMemberSearch}
+                onChangeText={handleSearchAddMember}
+                autoFocus
+              />
+            </View>
+            <FlatList
+              data={addMemberResults}
+              keyExtractor={(u) => String(u.id)}
+              style={{ maxHeight: 250 }}
+              renderItem={({ item: user }) => {
+                const uName = user.fullName || user.full_name || user.username;
+                return (
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10 }}
+                    onPress={() => handleAddMember(user)}
+                    disabled={isAddingMember}
+                  >
+                    <View style={{
+                      width: 32, height: 32, borderRadius: 16,
+                      backgroundColor: getAvatarColor(uName),
+                      justifyContent: 'center', alignItems: 'center', marginRight: 10,
+                    }}>
+                      <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '600' }}>
+                        {uName[0]?.toUpperCase() || '?'}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, color: '#1A1A1A' }}>{uName}</Text>
+                      <Text style={{ fontSize: 11, color: '#9CA3AF' }}>@{user.username}</Text>
+                    </View>
+                    <Ionicons name="add-circle-outline" size={22} color="#1E3A8A" />
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                addMemberSearch.length > 0 ? (
+                  <Text style={{ textAlign: 'center', padding: 20, color: '#9CA3AF', fontSize: 13 }}>
+                    Không tìm thấy người dùng
+                  </Text>
+                ) : null
+              }
+            />
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => { setShowAddMember(false); setAddMemberSearch(''); setAddMemberResults([]); }}
             >
               <Text style={styles.menuItemIcon}>✕</Text>
               <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
