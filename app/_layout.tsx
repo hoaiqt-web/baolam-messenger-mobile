@@ -1,9 +1,16 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { I18nManager } from 'react-native';
+import { I18nManager, LogBox } from 'react-native';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
+
+// Suppress the expo-notifications Console Error in Expo Go (SDK 53).
+// Push notifications are only available in development/production builds,
+// but the library emits an error on import — this is cosmetic only.
+LogBox.ignoreLogs([
+  'expo-notifications',
+]);
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
