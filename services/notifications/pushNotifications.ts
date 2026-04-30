@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { httpClient } from '../api/httpClient';
 
@@ -17,8 +18,17 @@ Notifications.setNotificationHandler({
 /**
  * Request permission and register for push notifications.
  * Sends the Expo push token to the backend for storage.
+ * NOTE: Push notifications are NOT supported in Expo Go since SDK 53.
+ *       This only works in development builds (expo-dev-client) or production.
  */
 export async function registerForPushNotifications(): Promise<string | null> {
+  // Skip in Expo Go — push notifications removed since SDK 53
+  const isExpoGo = Constants.appOwnership === 'expo';
+  if (isExpoGo) {
+    console.log('Push notifications skipped (Expo Go not supported since SDK 53)');
+    return null;
+  }
+
   if (!Device.isDevice) {
     console.log('Push notifications require a physical device');
     return null;
