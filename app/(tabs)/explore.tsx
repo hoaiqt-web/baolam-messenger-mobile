@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { httpClient } from '@/services/api/httpClient';
 import { authStorage } from '@/features/auth/authStorage';
+import { closeReverbClient } from '@/services/realtime/reverbClient';
 import { useRouter } from 'expo-router';
 
 export default function SettingsScreen() {
@@ -35,10 +36,11 @@ export default function SettingsScreen() {
         text: 'Đăng xuất',
         style: 'destructive',
         onPress: async () => {
+          closeReverbClient();
           try {
             await httpClient.post('/auth/logout');
           } catch {}
-          authStorage.clearToken();
+          await authStorage.clearToken();
           router.replace('/');
         },
       },

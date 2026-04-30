@@ -213,7 +213,7 @@ export default function ChatScreen() {
 
     // Mark conversation as read when entering
     if (Number.isFinite(conversationId) && conversationId > 0) {
-      httpClient.post(`/conversations/${conversationId}/mark-read`).catch(() => {});
+      httpClient.post(`/conversations/${conversationId}/read`).catch(() => {});
     }
   }, [id]);
 
@@ -363,7 +363,7 @@ export default function ChatScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
-            await httpClient.post(`/conversations/${conversationId}/messages/${messageId}/recall`);
+            await httpClient.delete(`/conversations/${conversationId}/messages/${messageId}`);
             setMessages((prev) =>
               prev.map((msg) =>
                 Number(msg.id) === messageId
@@ -851,7 +851,7 @@ export default function ChatScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ['images', 'videos'],
         allowsMultipleSelection: false,
         quality: 0.85,
       });
