@@ -63,8 +63,10 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
 
     return pushToken;
-  } catch (error) {
-    console.error('Failed to get push token:', error);
+  } catch (error: any) {
+    // In Expo Go dev mode, projectId is not available — this is expected.
+    // Push tokens will work after EAS Build with proper app.json config.
+    console.warn('Push token not available (dev mode):', error?.message || error);
     return null;
   }
 }
