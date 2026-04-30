@@ -2,8 +2,7 @@ import axios from "axios";
 import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 
 import { authStorage } from "@/features/auth/authStorage";
-// Real-time socket ID disabled for React Native (Echo/Pusher not RN-compatible yet)
-// import { getReverbSocketId } from "@/services/realtime/reverbClient";
+import { getReverbSocketId } from "@/services/realtime/reverbClient";
 import { env } from "@/shared/config/env";
 
 type UnauthorizedHandler = () => void;
@@ -100,11 +99,12 @@ httpClient.interceptors.request.use((config) => {
   requestConfig._requestStartedAtMs = Date.now();
   requestConfig._traceId = createTraceId();
   requestConfig.headers["X-Trace-Id"] = requestConfig._traceId;
-  // Socket ID disabled for React Native compatibility
-  // const socketId = getReverbSocketId();
-  // if (socketId) {
-  //   requestConfig.headers["X-Socket-Id"] = socketId;
-  // }
+  // Attach WebSocket socket ID so Laravel Broadcasting can exclude the sender
+  // from receiving their own broadcast events (prevents message duplication).
+  const socketId = getReverbSocketId();
+  if (socketId) {
+    requestConfig.headers["X-Socket-Id"] = socketId;
+  }
 
   return requestConfig;
 });
