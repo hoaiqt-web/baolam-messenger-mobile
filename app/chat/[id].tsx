@@ -536,6 +536,115 @@ export default function ChatScreen() {
     }
   };
 
+  // ===== GALLERY & FILES =====
+  const [showGallery, setShowGallery] = useState(false);
+  const [galleryImages, setGalleryImages] = useState<any[]>([]);
+  const [showFileList, setShowFileList] = useState(false);
+  const [fileAttachments, setFileAttachments] = useState<any[]>([]);
+
+  const handleOpenGallery = async () => {
+    try {
+      const { data } = await httpClient.get(`/conversations/${conversationId}/attachments`, {
+        params: { type: 'image', limit: 50 },
+      });
+      setGalleryImages(data.attachments || data || []);
+      setShowGallery(true);
+    } catch {
+      Alert.alert('Lỗi', 'Không thể tải gallery');
+    }
+  };
+
+  const handleOpenFileList = async () => {
+    try {
+      const { data } = await httpClient.get(`/conversations/${conversationId}/attachments`);
+      const allAttachments = data.attachments || data || [];
+      setFileAttachments(allAttachments.filter((a: any) => a.type !== 'image'));
+      setShowFileList(true);
+    } catch {
+      Alert.alert('Lỗi', 'Không thể tải danh sách file');
+    }
+  };
+
+  // ===== IN-CONVERSATION SEARCH =====
+  const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [msgSearchQuery, setMsgSearchQuery] = useState('');
+  const [msgSearchResults, setMsgSearchResults] = useState<any[]>([]);
+  const [isSearchingMsgs, setIsSearchingMsgs] = useState(false);
+  const flatListRef = useRef<FlatList>(null);
+
+  const handleSearchMessages = async (query: string) => {
+    setMsgSearchQuery(query);
+    if (query.length < 2) {
+      setMsgSearchResults([]);
+      return;
+    }
+    setIsSearchingMsgs(true);
+    try {
+      const { data } = await httpClient.get(
+        `/conversations/${conversationId}/messages/search`,
+        { params: { q: query } },
+      );
+      setMsgSearchResults(data.messages || data || []);
+    } catch {
+      setMsgSearchResults([]);
+    } finally {
+      setIsSearchingMsgs(false);
+    }
+  };
+
+  const handleScrollToMessage = async (messageId: number) => {
+    setShowMsgSearch(false);
+    setMsgSearchQuery('');
+    setMsgSearchResults([]);
+    try {
+      // Load messages around the target
+      const { data } = await httpClient.get(
+        `/conversations/${conversationId}/messages/around/${messageId}`,
+      );
+      const aroundMessages = data.messages || data || [];
+      if (aroundMessages.length > 0) {
+        setMessages(aroundMessages);
+        // Scroll to the target message after a short delay
+        setTimeout(() => {
+          const idx = aroundMessages.findIndex((m: any) => Number(m.id) === messageId);
+          if (idx >= 0 && flatListRef.current) {
+            flatListRef.current.scrollToIndex({ index: idx, animated: true });
+          }
+        }, 300);
+      }
+    } catch {
+      Alert.alert('Lỗi', 'Không thể nhảy đến tin nhắn');
+    }
+  };
+
+  // ===== USER PROFILE =====
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileUser, setProfileUser] = useState<any>(null);
+
+  const handleViewProfile = async (username: string) => {
+    try {
+      const { data } = await httpClient.get(`/users/${encodeURIComponent(username)}/profile`);
+      setProfileUser(data.user || data);
+      setShowProfile(true);
+    } catch {
+      Alert.alert('Lỗi', 'Không thể tải thông tin người dùng');
+    }
+  };
+
+  // ===== REACTION DETAILS =====
+  const [showReactionDetail, setShowReactionDetail] = useState(false);
+  const [reactionDetailData, setReactionDetailData] = useState<any[]>([]);
+
+  const handleViewReactionDetail = async (messageId: number) => {
+    try {
+      const { data } = await httpClient.get(`/messages/${messageId}/reactions`);
+      setReactionDetailData(data.reactions || data || []);
+      setShowReactionDetail(true);
+    } catch {
+      Alert.alert('Lỗi', 'Không thể tải chi tiết reactions');
+    }
+  };
+
   const handleLongPressMessage = (item: any) => {
     const isRecalled = item.isRecalled || item.is_recalled;
     if (isRecalled) return;
@@ -839,13 +948,20 @@ export default function ChatScreen() {
         {!isMine && (
           <View style={styles.avatarCol}>
             {isFirstInGroup ? (
-              <View
-                style={[styles.avatarSmall, { backgroundColor: avatarColor }]}
+              <TouchableOpacity
+                onPress={() => {
+                  const username = item.sender?.username;
+                  if (username) handleViewProfile(username);
+                }}
               >
-                <Text style={styles.avatarSmallText}>
-                  {senderName[0].toUpperCase()}
-                </Text>
-              </View>
+                <View
+                  style={[styles.avatarSmall, { backgroundColor: avatarColor }]}
+                >
+                  <Text style={styles.avatarSmallText}>
+                    {senderName[0].toUpperCase()}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             ) : (
               <View style={styles.avatarSpacer} />
             )}
@@ -944,6 +1060,7 @@ export default function ChatScreen() {
                     item.user_reaction === code && styles.reactionBadgeActive,
                   ]}
                   onPress={() => handleToggleReaction(item, codeToEmoji(code))}
+                  onLongPress={() => handleViewReactionDetail(Number(item.id))}
                 >
                   <Text style={styles.reactionEmoji}>{codeToEmoji(code)}</Text>
                   {Number(count) > 1 && <Text style={styles.reactionCount}>{count}</Text>}
@@ -984,6 +1101,9 @@ export default function ChatScreen() {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E', marginRight: 4 }} />
                 <Text style={{ color: '#93C5FD', fontSize: 11 }}>Online</Text>
               </View>
+              <TouchableOpacity onPress={() => setShowMsgSearch(true)}>
+                <Ionicons name="search-outline" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
               {isGroup && (
                 <TouchableOpacity onPress={handleOpenGroupSettings}>
                   <Ionicons name="settings-outline" size={20} color="#FFFFFF" />
@@ -1006,6 +1126,7 @@ export default function ChatScreen() {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 100}
         >
           <FlatList
+            ref={flatListRef}
             data={uniqueMessages}
             keyExtractor={(item, index) => {
               const base = item?.id?.toString() || item?.client_message_id || '';
@@ -1435,6 +1556,18 @@ export default function ChatScreen() {
               <Text style={styles.menuItemText}>Đổi ảnh đại diện nhóm</Text>
             </TouchableOpacity>
 
+            {/* Gallery */}
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowGroupSettings(false); handleOpenGallery(); }}>
+              <Text style={styles.menuItemIcon}>📷</Text>
+              <Text style={styles.menuItemText}>Gallery ảnh</Text>
+            </TouchableOpacity>
+
+            {/* Files */}
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowGroupSettings(false); handleOpenFileList(); }}>
+              <Text style={styles.menuItemIcon}>📁</Text>
+              <Text style={styles.menuItemText}>File đính kèm</Text>
+            </TouchableOpacity>
+
             <View style={styles.menuDivider} />
 
             {/* Members */}
@@ -1569,6 +1702,201 @@ export default function ChatScreen() {
               style={styles.menuItem}
               onPress={() => { setShowAddMember(false); setAddMemberSearch(''); setAddMemberResults([]); }}
             >
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== GALLERY MODAL ===== */}
+      <Modal visible={showGallery} transparent animationType="slide" onRequestClose={() => setShowGallery(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingTop: 48 }}>
+            <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '600' }}>📷 Gallery ({galleryImages.length})</Text>
+            <TouchableOpacity onPress={() => setShowGallery(false)}>
+              <Ionicons name="close" size={24} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={galleryImages}
+            keyExtractor={(img) => String(img.id)}
+            numColumns={3}
+            contentContainerStyle={{ padding: 2 }}
+            renderItem={({ item: img }) => (
+              <TouchableOpacity
+                style={{ width: '33.33%', aspectRatio: 1, padding: 1 }}
+                onPress={() => { setShowGallery(false); setPreviewImageUrl(img.url || img.path); }}
+              >
+                <Image
+                  source={{ uri: img.url || img.path || img.thumbnailUrl }}
+                  style={{ flex: 1, borderRadius: 2 }}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={{ color: '#9CA3AF', textAlign: 'center', padding: 40, fontSize: 14 }}>
+                Chưa có ảnh nào
+              </Text>
+            }
+          />
+        </View>
+      </Modal>
+
+      {/* ===== FILE LIST MODAL ===== */}
+      <Modal visible={showFileList} transparent animationType="slide" onRequestClose={() => setShowFileList(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowFileList(false)}>
+          <View style={[styles.menuSheet, { maxHeight: screenHeight * 0.7 }]}>
+            <Text style={styles.forwardTitle}>📁 File đính kèm ({fileAttachments.length})</Text>
+            <View style={styles.menuDivider} />
+            <FlatList
+              data={fileAttachments}
+              keyExtractor={(f) => String(f.id)}
+              renderItem={({ item: file }) => (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => Linking.openURL(file.url || file.path)}
+                >
+                  <Text style={styles.menuItemIcon}>📄</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.menuItemText} numberOfLines={1}>{file.originalName || file.name || 'File'}</Text>
+                    <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{formatFileSize(file.size)}</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <Text style={{ textAlign: 'center', padding: 20, color: '#9CA3AF', fontSize: 13 }}>Chưa có file nào</Text>
+              }
+            />
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowFileList(false)}>
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== MESSAGE SEARCH MODAL ===== */}
+      <Modal visible={showMsgSearch} transparent animationType="slide" onRequestClose={() => setShowMsgSearch(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMsgSearch(false)}>
+          <View style={[styles.menuSheet, { maxHeight: screenHeight * 0.7 }]}>
+            <Text style={styles.forwardTitle}>🔍 Tìm tin nhắn</Text>
+            <View style={styles.menuDivider} />
+            <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+              <TextInput
+                style={{
+                  borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8,
+                  paddingHorizontal: 10, paddingVertical: 6, fontSize: 14, color: '#111827',
+                }}
+                placeholder="Nhập từ khóa..."
+                placeholderTextColor="#9CA3AF"
+                value={msgSearchQuery}
+                onChangeText={handleSearchMessages}
+                autoFocus
+              />
+            </View>
+            {isSearchingMsgs && <ActivityIndicator size="small" color="#1E3A8A" style={{ marginVertical: 8 }} />}
+            <FlatList
+              data={msgSearchResults}
+              keyExtractor={(m) => String(m.id)}
+              style={{ maxHeight: 300 }}
+              renderItem={({ item: msg }) => {
+                const sName = getSenderName(msg);
+                const t = formatTime(msg.sentAt || msg.sent_at);
+                return (
+                  <TouchableOpacity
+                    style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: '#EEE' }}
+                    onPress={() => handleScrollToMessage(Number(msg.id))}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: '#1A1A1A' }}>{sName}</Text>
+                      <Text style={{ fontSize: 11, color: '#999' }}>{t}</Text>
+                    </View>
+                    <Text style={{ fontSize: 13, color: '#666', marginTop: 2 }} numberOfLines={2}>{msg.body}</Text>
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                msgSearchQuery.length >= 2 && !isSearchingMsgs ? (
+                  <Text style={{ textAlign: 'center', padding: 20, color: '#9CA3AF', fontSize: 13 }}>Không tìm thấy</Text>
+                ) : null
+              }
+            />
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMsgSearch(false); setMsgSearchQuery(''); setMsgSearchResults([]); }}>
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== USER PROFILE MODAL ===== */}
+      <Modal visible={showProfile} transparent animationType="slide" onRequestClose={() => setShowProfile(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowProfile(false)}>
+          <View style={[styles.menuSheet, { alignItems: 'center', paddingVertical: 24 }]}>
+            {profileUser && (
+              <>
+                <View style={{
+                  width: 64, height: 64, borderRadius: 32,
+                  backgroundColor: getAvatarColor(profileUser.fullName || profileUser.username || '?'),
+                  justifyContent: 'center', alignItems: 'center', marginBottom: 12,
+                }}>
+                  <Text style={{ color: '#FFF', fontSize: 24, fontWeight: '600' }}>
+                    {(profileUser.fullName || profileUser.username || '?')[0]?.toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 18, fontWeight: '600', color: '#1A1A1A' }}>
+                  {profileUser.fullName || profileUser.full_name || profileUser.username}
+                </Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>
+                  @{profileUser.username}
+                </Text>
+                {profileUser.email && (
+                  <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 4 }}>
+                    📧 {profileUser.email}
+                  </Text>
+                )}
+                {profileUser.department && (
+                  <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>
+                    🏢 {profileUser.department}
+                  </Text>
+                )}
+              </>
+            )}
+            <TouchableOpacity
+              style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 8, backgroundColor: '#F3F4F6', borderRadius: 8 }}
+              onPress={() => setShowProfile(false)}
+            >
+              <Text style={{ color: '#374151', fontSize: 14 }}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== REACTION DETAIL MODAL ===== */}
+      <Modal visible={showReactionDetail} transparent animationType="slide" onRequestClose={() => setShowReactionDetail(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowReactionDetail(false)}>
+          <View style={[styles.menuSheet, { maxHeight: screenHeight * 0.5 }]}>
+            <Text style={styles.forwardTitle}>😊 Chi tiết reactions</Text>
+            <View style={styles.menuDivider} />
+            <FlatList
+              data={reactionDetailData}
+              keyExtractor={(r, i) => `${r.userId || i}`}
+              renderItem={({ item: reaction }) => {
+                const rName = reaction.user?.fullName || reaction.user?.full_name || reaction.user?.username || 'Ai đó';
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 }}>
+                    <Text style={{ fontSize: 20, marginRight: 10 }}>{codeToEmoji(reaction.type)}</Text>
+                    <Text style={{ fontSize: 14, color: '#1A1A1A', flex: 1 }}>{rName}</Text>
+                  </View>
+                );
+              }}
+              ListEmptyComponent={
+                <Text style={{ textAlign: 'center', padding: 20, color: '#9CA3AF', fontSize: 13 }}>Chưa có reaction nào</Text>
+              }
+            />
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowReactionDetail(false)}>
               <Text style={styles.menuItemIcon}>✕</Text>
               <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
             </TouchableOpacity>
