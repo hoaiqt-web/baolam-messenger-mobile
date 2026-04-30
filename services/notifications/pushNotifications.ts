@@ -4,16 +4,21 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { httpClient } from '../api/httpClient';
 
-// Configure how notifications appear when app is in foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Configure how notifications appear when app is in foreground.
+// Only register the handler outside Expo Go because expo-notifications
+// removed push support from Expo Go in SDK 53 and the bare import
+// triggers a noisy red Console Error banner otherwise.
+if (Constants.appOwnership !== 'expo') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 /**
  * Request permission and register for push notifications.
