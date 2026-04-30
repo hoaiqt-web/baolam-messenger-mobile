@@ -404,9 +404,11 @@ export default function HomeScreen() {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         {/* Banner */}
-        <View style={styles.banner}>
-          <Text maxFontSizeMultiplier={1} style={styles.bannerTitle}>BAOLAM Messenger</Text>
-        </View>
+        <Image
+          source={require('@/assets/images/Banner.png')}
+          style={styles.bannerImage}
+          resizeMode="cover"
+        />
 
         {/* Search + action row */}
         <View style={styles.searchRow}>
@@ -809,17 +811,10 @@ const styles = StyleSheet.create({
   },
 
   // Banner
-  banner: {
-    backgroundColor: '#1E3A8A',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  bannerTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+  bannerImage: {
+    width: '100%',
+    aspectRatio: 3035 / 829, // original image ratio
+    maxHeight: 70,
   },
 
   // Search row (below banner)
