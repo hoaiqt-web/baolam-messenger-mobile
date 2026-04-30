@@ -17,6 +17,7 @@ import {
   Dimensions,
   Pressable,
   StatusBar,
+  ScrollView,
 } from 'react-native';
 import { Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -645,6 +646,38 @@ export default function ChatScreen() {
     }
   };
 
+  // ===== AI SUMMARIZE =====
+  const [showAiSummary, setShowAiSummary] = useState(false);
+  const [aiSummaryData, setAiSummaryData] = useState<any>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  const handleAiSummarize = async () => {
+    setIsAiLoading(true);
+    setShowAiSummary(true);
+    setAiSummaryData(null);
+    try {
+      const now = new Date();
+      const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 ngày trước
+      const { data } = await httpClient.post('/ai/summarize', {
+        conversationId,
+        question: 'Tóm tắt tình hình cuộc hội thoại này',
+        from: from.toISOString().split('T')[0],
+        to: now.toISOString().split('T')[0],
+      });
+      setAiSummaryData(data.data || data);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404 || status === 501) {
+        setAiSummaryData({ summary: 'Tính năng AI chưa được kích hoạt trên server.', highlights: [], actionItems: [], risks: [] });
+      } else {
+        Alert.alert('Lỗi', 'Không thể tạo báo cáo AI');
+        setShowAiSummary(false);
+      }
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
   const handleLongPressMessage = (item: any) => {
     const isRecalled = item.isRecalled || item.is_recalled;
     if (isRecalled) return;
@@ -1103,6 +1136,9 @@ export default function ChatScreen() {
               </View>
               <TouchableOpacity onPress={() => setShowMsgSearch(true)}>
                 <Ionicons name="search-outline" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleAiSummarize}>
+                <Ionicons name="sparkles-outline" size={20} color="#FFFFFF" />
               </TouchableOpacity>
               {isGroup && (
                 <TouchableOpacity onPress={handleOpenGroupSettings}>
@@ -1897,6 +1933,70 @@ export default function ChatScreen() {
               }
             />
             <TouchableOpacity style={styles.menuItem} onPress={() => setShowReactionDetail(false)}>
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== AI SUMMARY MODAL ===== */}
+      <Modal visible={showAiSummary} transparent animationType="slide" onRequestClose={() => setShowAiSummary(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowAiSummary(false)}>
+          <View style={[styles.menuSheet, { maxHeight: screenHeight * 0.75 }]}>
+            <Text style={styles.forwardTitle}>✨ Báo cáo AI — 7 ngày gần nhất</Text>
+            <View style={styles.menuDivider} />
+
+            {isAiLoading ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#1E3A8A" />
+                <Text style={{ color: '#6B7280', marginTop: 12, fontSize: 13 }}>AI đang phân tích tin nhắn...</Text>
+              </View>
+            ) : aiSummaryData ? (
+              <ScrollView style={{ maxHeight: screenHeight * 0.55, paddingHorizontal: 16 }}>
+                {/* Summary */}
+                <View style={{ marginVertical: 10 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#1E3A8A', marginBottom: 4 }}>📋 Tóm tắt</Text>
+                  <Text style={{ fontSize: 13, color: '#374151', lineHeight: 20 }}>
+                    {aiSummaryData.summary || aiSummaryData.answer || 'Không có dữ liệu'}
+                  </Text>
+                </View>
+
+                {/* Highlights */}
+                {aiSummaryData.highlights?.length > 0 && (
+                  <View style={{ marginVertical: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#059669', marginBottom: 4 }}>⭐ Điểm nổi bật</Text>
+                    {aiSummaryData.highlights.map((h: string, i: number) => (
+                      <Text key={i} style={{ fontSize: 13, color: '#374151', lineHeight: 20 }}>• {h}</Text>
+                    ))}
+                  </View>
+                )}
+
+                {/* Action Items */}
+                {aiSummaryData.actionItems?.length > 0 && (
+                  <View style={{ marginVertical: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#D97706', marginBottom: 4 }}>📌 Cần làm</Text>
+                    {aiSummaryData.actionItems.map((a: string, i: number) => (
+                      <Text key={i} style={{ fontSize: 13, color: '#374151', lineHeight: 20 }}>• {a}</Text>
+                    ))}
+                  </View>
+                )}
+
+                {/* Risks */}
+                {aiSummaryData.risks?.length > 0 && (
+                  <View style={{ marginVertical: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#DC2626', marginBottom: 4 }}>⚠️ Rủi ro</Text>
+                    {aiSummaryData.risks.map((r: string, i: number) => (
+                      <Text key={i} style={{ fontSize: 13, color: '#374151', lineHeight: 20 }}>• {r}</Text>
+                    ))}
+                  </View>
+                )}
+
+                <View style={{ height: 16 }} />
+              </ScrollView>
+            ) : null}
+
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowAiSummary(false)}>
               <Text style={styles.menuItemIcon}>✕</Text>
               <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
             </TouchableOpacity>
