@@ -93,6 +93,11 @@ export function addNotificationListeners(
   onReceive?: (notification: Notifications.Notification) => void,
   onTap?: (response: Notifications.NotificationResponse) => void,
 ) {
+  // Skip in Expo Go — all notification APIs removed since SDK 53
+  if (Constants.appOwnership === 'expo') {
+    return () => {}; // no-op cleanup
+  }
+
   const receiveSub = Notifications.addNotificationReceivedListener((notification) => {
     onReceive?.(notification);
   });
@@ -111,6 +116,8 @@ export function addNotificationListeners(
  * Set badge count on app icon.
  */
 export async function setBadgeCount(count: number) {
+  // Skip in Expo Go — badge API removed since SDK 53
+  if (Constants.appOwnership === 'expo') return;
   try {
     await Notifications.setBadgeCountAsync(count);
   } catch {
