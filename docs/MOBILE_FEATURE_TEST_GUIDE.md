@@ -2,7 +2,7 @@
 
 **Ngày cập nhật:** 30/04/2026  
 **Branch:** `feature/ui-zalo-density`  
-**Trạng thái:** 45/49 done (4 web-only không áp dụng)  
+**Trạng thái:** 46/49 done (3 web-only không áp dụng)  
 **Người thực hiện:** CEO + Antigravity AI  
 
 ---
@@ -213,7 +213,14 @@ npx expo start --clear
 | — | Paste ảnh từ clipboard (Ctrl+V) | Tính năng bàn phím máy tính |
 | — | Image Editor (Fabric.js) | Canvas API, không tương thích React Native |
 | — | Resize panels (drag separator) | Giao diện desktop |
-| — | AI Summarize (Báo cáo tình hình) | Tính năng nâng cao, ưu tiên thấp |
+
+---
+
+### L. AI SUMMARIZE (1 tính năng) — ⭐ MỚI
+
+| # | Tính năng | Cách test | Kết quả |
+|---|---|---|---|
+| 49+ | AI Báo cáo tình hình | Vào chat → bấm ✨ (header) → đợi AI → xem báo cáo | ☐ |
 
 ---
 
