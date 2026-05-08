@@ -346,6 +346,7 @@ export function useChatRoomController(): UseChatRoomState {
   // would otherwise drop events during the re-subscribe auth round-trip).
   const activeConversationIdRef = useRef(activeConversationId);
   const notificationsEnabledRef = useRef(notificationsEnabled);
+  const setActiveConversationIdRef = useRef(setActiveConversationId);
   const [isDocumentVisible, setIsDocumentVisible] = useState(
     typeof document === 'undefined'
       ? true
@@ -367,6 +368,10 @@ export function useChatRoomController(): UseChatRoomState {
   useEffect(() => {
     notificationsEnabledRef.current = notificationsEnabled;
   }, [notificationsEnabled]);
+
+  useEffect(() => {
+    setActiveConversationIdRef.current = setActiveConversationId;
+  }, [setActiveConversationId]);
 
   const hasCurrentUser = Boolean(currentUser);
   const hasActiveConversation = Boolean(
@@ -1326,6 +1331,30 @@ export function useChatRoomController(): UseChatRoomState {
                 c.id === normalizedConversation.id ? normalizedConversation : c,
               ),
             };
+          },
+        );
+      },
+      ({ conversationId }) => {
+        const id = Number(conversationId);
+        if (!Number.isFinite(id) || id <= 0) {
+          return;
+        }
+        queryClient.removeQueries({ queryKey: ['chat', 'messages', id] });
+        queryClient.removeQueries({ queryKey: ['chat', 'pins', id] });
+        queryClient.removeQueries({ queryKey: ['chat', 'attachments', id] });
+        queryClient.setQueryData<{ conversations: ChatConversation[] }>(
+          ['chat', 'conversations'],
+          (prev) => {
+            const previousConversations = prev?.conversations ?? [];
+            const newConversations = previousConversations.filter(
+              (c) => c.id !== id,
+            );
+            if (activeConversationIdRef.current === id) {
+              const nextConv =
+                newConversations.length > 0 ? newConversations[0] : null;
+              setActiveConversationIdRef.current(nextConv?.id ?? -1);
+            }
+            return { conversations: newConversations };
           },
         );
       },
