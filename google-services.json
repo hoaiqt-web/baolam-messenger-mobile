@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "439865631899",
+    "project_id": "baolam-messenger-mobile",
+    "storage_bucket": "baolam-messenger-mobile.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:439865631899:android:599ec771563bdb6a68923e",
+        "android_client_info": {
+          "package_name": "com.baolam.messenger"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDXCzLaGPrC31JkRVLH1PgJ9gMzgcs_IY4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

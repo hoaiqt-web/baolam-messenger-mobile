@@ -23,7 +23,7 @@ const pusherModule =
 const PusherCtor = resolvePusherConstructor(pusherModule);
 (globalThis as any).Pusher = PusherCtor;
 
-type ReverbMessageEventPayload = {
+export type ReverbMessageEventPayload = {
   message: {
     id: number;
     conversationId: number;
@@ -123,6 +123,10 @@ type ReverbConversationReadUpdatedPayload = {
   conversationId: number;
   userId: number;
   lastReadMessageId: number;
+};
+
+export type ReverbConversationDeletedPayload = {
+  conversationId: number;
 };
 
 type RealtimeConnectionState =
@@ -429,6 +433,7 @@ export function subscribeUserInboxMessages(
   onMessage: (payload: ReverbMessageEventPayload) => void,
   onConversationCreated?: (payload: ReverbConversationCreatedPayload) => void,
   onConversationUpdated?: (payload: ReverbConversationCreatedPayload) => void,
+  onConversationDeleted?: (payload: ReverbConversationDeletedPayload) => void,
 ): () => void {
   const echo = getEchoClient();
   if (!echo) {
@@ -466,6 +471,16 @@ export function subscribeUserInboxMessages(
     };
     channel.listen('.conversation.updated', onConversationUpdatedWithHeartbeat);
   }
+  let onConversationDeletedWithHeartbeat:
+    | ((payload: ReverbConversationDeletedPayload) => void)
+    | undefined;
+  if (onConversationDeleted) {
+    onConversationDeletedWithHeartbeat = (payload: ReverbConversationDeletedPayload) => {
+      markRealtimeInboundActivity();
+      onConversationDeleted(payload);
+    };
+    channel.listen('.conversation.deleted', onConversationDeletedWithHeartbeat);
+  }
 
   return () => {
     channel.stopListening('.message.sent', onMessageWithHeartbeat);
@@ -480,6 +495,9 @@ export function subscribeUserInboxMessages(
         '.conversation.updated',
         onConversationUpdatedWithHeartbeat,
       );
+    }
+    if (onConversationDeletedWithHeartbeat) {
+      channel.stopListening('.conversation.deleted', onConversationDeletedWithHeartbeat);
     }
     echo.leave(channelName);
   };
