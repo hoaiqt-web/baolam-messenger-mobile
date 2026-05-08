@@ -18,15 +18,14 @@ import {
   addNotificationListeners,
 } from '@/services/notifications/pushNotifications';
 
+import { AppThemeProvider, useAppTheme } from '@/contexts/ThemeContext';
+
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
-export default function RootLayout() {
-  // Lock app to LTR to avoid accidental mirrored UI on simulator/device RTL mode.
-  I18nManager.allowRTL(false);
-  I18nManager.forceRTL(false);
-  const colorScheme = useColorScheme();
+function RootLayoutInner() {
+  const { isDark } = useAppTheme();
   const router = useRouter();
 
   // Register push notifications on app start
@@ -55,12 +54,24 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
     </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  // Lock app to LTR to avoid accidental mirrored UI on simulator/device RTL mode.
+  I18nManager.allowRTL(false);
+  I18nManager.forceRTL(false);
+
+  return (
+    <AppThemeProvider>
+      <RootLayoutInner />
+    </AppThemeProvider>
   );
 }
