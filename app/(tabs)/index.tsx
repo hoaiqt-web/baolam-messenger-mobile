@@ -19,6 +19,7 @@ import { authApi } from '@/services/api/authApi';
 import { chatApi } from '@/services/api/chatApi';
 import { httpClient } from '@/services/api/httpClient';
 import { authStorage } from '@/features/auth/authStorage';
+import { useAppTheme } from '@/contexts/ThemeContext';
 import {
   getLastRealtimeInboundActivityAt,
   getRealtimeConnectionState,
@@ -69,6 +70,8 @@ function formatTimeAgo(dateStr: string | null | undefined) {
 }
 
 export default function HomeScreen() {
+  const { isDark } = useAppTheme();
+  const styles = getIndexStyles(isDark);
   const REALTIME_IDLE_THRESHOLD_MS = 15_000;
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
   const POLL_INTERVAL_DEGRADED_MS = 5_000;
@@ -898,13 +901,24 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F0F2F5' },
+
+const getIndexStyles = (isDark: boolean) => {
+  const bgMain = isDark ? '#0B131F' : '#F0F2F5';
+  const bgCard = isDark ? '#121B2A' : '#FFFFFF';
+  const bgInput = isDark ? '#1e2e45' : '#F3F4F6';
+  const textPrimary = isDark ? '#FFFFFF' : '#111827';
+  const textSecondary = isDark ? '#9CA3AF' : '#6B7280';
+  const border = isDark ? '#1e2e45' : '#E5E7EB';
+  const primaryBrand = isDark ? '#00D9FF' : '#1E3A8A';
+  const textName = isDark ? '#F8FAFC' : '#1A1A1A';
+
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: bgMain },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F0F2F5',
+    backgroundColor: bgMain,
   },
 
   // Banner
@@ -917,35 +931,35 @@ const styles = StyleSheet.create({
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: bgCard,
     paddingHorizontal: 12,
     paddingVertical: 5,
     gap: 8,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: border,
   },
   searchBar: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: bgInput,
     paddingHorizontal: 12,
     borderRadius: 18,
     height: 36,
   },
-  searchIcon: { fontSize: 14, marginRight: 8 },
+  searchIcon: { fontSize: 14, marginRight: 8, color: textSecondary },
   searchInput: {
     flex: 1,
-    color: '#111827',
+    color: textPrimary,
     fontSize: 14,
     paddingVertical: 0,
   },
-  clearSearch: { color: '#999', fontSize: 14, paddingLeft: 8 },
+  clearSearch: { color: textSecondary, fontSize: 14, paddingLeft: 8 },
   searchSectionHeader: {
     marginHorizontal: 16,
     marginTop: 6,
     marginBottom: 4,
-    color: '#6B7280',
+    color: textSecondary,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -961,7 +975,7 @@ const styles = StyleSheet.create({
   // Chat List
   chatCard: {
     flexDirection: 'row',
-    backgroundColor: '#FFF',
+    backgroundColor: bgCard,
     paddingVertical: 10,
     paddingHorizontal: 14,
     alignItems: 'center',
@@ -982,7 +996,7 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#FFF',
+    backgroundColor: border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -990,7 +1004,7 @@ const styles = StyleSheet.create({
   chatInfo: {
     flex: 1,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#EEEEEE',
+    borderBottomColor: border,
     paddingBottom: 10,
   },
   chatTopRow: {
@@ -1002,84 +1016,84 @@ const styles = StyleSheet.create({
   chatName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1A1A1A',
+    color: textName,
     flex: 1,
     marginRight: 8,
     lineHeight: 21,
   },
-  chatTime: { fontSize: 12, color: '#999' },
-  chatPreview: { fontSize: 14, color: '#666', lineHeight: 19 },
+  chatTime: { fontSize: 12, color: textSecondary },
+  chatPreview: { fontSize: 14, color: textSecondary, lineHeight: 19 },
 
   // Empty
   emptyContainer: { padding: 40, alignItems: 'center' },
   emptyIcon: { fontSize: 40, marginBottom: 8 },
-  emptyText: { textAlign: 'center', color: '#6B7280', fontSize: 14 },
+  emptyText: { textAlign: 'center', color: textSecondary, fontSize: 14 },
   emptyHint: {
     textAlign: 'center',
-    color: '#9CA3AF',
+    color: textSecondary,
     fontSize: 12,
     marginTop: 4,
   },
 
   // Login
-  loginContainer: { flex: 1, padding: 30, justifyContent: 'center' },
+  loginContainer: { flex: 1, padding: 30, justifyContent: 'center', backgroundColor: bgMain },
   logoCircle: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#1E3A8A',
+    backgroundColor: primaryBrand,
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
     marginBottom: 20,
-    shadowColor: '#1E3A8A',
+    shadowColor: primaryBrand,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
   },
-  logoText: { color: '#FFF', fontSize: 38, fontWeight: 'bold' },
+  logoText: { color: isDark ? '#0B131F' : '#FFF', fontSize: 38, fontWeight: 'bold' },
   welcomeTitle: {
     fontSize: 26,
     fontWeight: 'bold',
-    color: '#111827',
+    color: textPrimary,
     textAlign: 'center',
     marginBottom: 4,
   },
   welcomeSubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: textSecondary,
     textAlign: 'center',
     marginBottom: 32,
   },
   formGroup: { marginBottom: 16 },
-  label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
+  label: { fontSize: 13, fontWeight: '600', color: isDark ? '#CBD5E1' : '#374151', marginBottom: 6 },
   input: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: bgInput,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: isDark ? '#334155' : '#E5E7EB',
     borderRadius: 10,
     padding: 14,
     fontSize: 15,
-    color: '#111827',
+    color: textPrimary,
   },
   loginBtn: {
-    backgroundColor: '#1E3A8A',
+    backgroundColor: primaryBrand,
     borderRadius: 10,
     padding: 15,
     alignItems: 'center',
     marginTop: 8,
-    shadowColor: '#1E3A8A',
+    shadowColor: primaryBrand,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
     elevation: 4,
   },
-  loginBtnDisabled: { backgroundColor: '#9CA3AF' },
-  loginBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  loginBtnDisabled: { backgroundColor: isDark ? '#334155' : '#9CA3AF' },
+  loginBtnText: { color: isDark ? '#0B131F' : '#FFF', fontSize: 16, fontWeight: 'bold' },
   versionText: {
     textAlign: 'center',
-    color: '#D1D5DB',
+    color: textSecondary,
     fontSize: 11,
     marginTop: 20,
   },
@@ -1091,15 +1105,15 @@ const styles = StyleSheet.create({
   },
   chatNameUnread: {
     fontWeight: '700',
-    color: '#000000',
+    color: textPrimary,
   },
   chatTimeUnread: {
-    color: '#1E3A8A',
+    color: primaryBrand,
     fontWeight: '600',
   },
   chatPreviewUnread: {
     fontWeight: '500',
-    color: '#333',
+    color: isDark ? '#E2E8F0' : '#333',
   },
   unreadDot: {
     width: 8,
@@ -1123,25 +1137,25 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#1E3A8A',
+    backgroundColor: primaryBrand,
     justifyContent: 'center',
     alignItems: 'center',
   },
   newChatBtnText: {
-    color: '#FFFFFF',
+    color: isDark ? '#0B131F' : '#FFF',
     fontSize: 20,
-    fontWeight: '300',
+    fontWeight: '500',
     lineHeight: 22,
   },
 
   // Bottom Sheet (new chat options)
   sheetOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.3)',
     justifyContent: 'flex-end',
   },
   sheetContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: bgCard,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     paddingBottom: 20,
@@ -1151,7 +1165,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#D1D5DB',
+    backgroundColor: isDark ? '#334155' : '#D1D5DB',
     alignSelf: 'center',
     marginBottom: 12,
   },
@@ -1161,7 +1175,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: border,
   },
   sheetItemIcon: {
     fontSize: 20,
@@ -1171,19 +1185,19 @@ const styles = StyleSheet.create({
   },
   sheetItemText: {
     fontSize: 15,
-    color: '#111827',
+    color: textPrimary,
     fontWeight: '500',
   },
 
   // Group creation modal
   groupModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
     padding: 20,
   },
   groupModalSheet: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: bgCard,
     borderRadius: 16,
     padding: 20,
     maxHeight: '80%',
@@ -1191,22 +1205,22 @@ const styles = StyleSheet.create({
   groupModalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#111827',
+    color: textPrimary,
     textAlign: 'center',
     marginBottom: 16,
   },
   groupNameInput: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: bgInput,
     borderRadius: 10,
     padding: 12,
     fontSize: 15,
-    color: '#111827',
+    color: textPrimary,
     marginBottom: 12,
   },
   groupSectionLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#6B7280',
+    color: textSecondary,
     marginBottom: 8,
   },
   groupUserList: {
@@ -1219,19 +1233,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 8,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: border,
   },
   groupUserItemSelected: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: isDark ? '#1e3a8a' : '#EFF6FF',
   },
   groupUserName: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#111827',
+    color: textPrimary,
   },
   groupUserUsername: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: textSecondary,
   },
   groupModalActions: {
     flexDirection: 'row',
@@ -1243,25 +1257,26 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 14,
     borderRadius: 10,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: bgInput,
     alignItems: 'center',
   },
   groupCancelText: {
-    color: '#6B7280',
+    color: textSecondary,
     fontWeight: '600',
   },
   groupCreateBtn: {
     flex: 1,
     padding: 14,
     borderRadius: 10,
-    backgroundColor: '#1E3A8A',
+    backgroundColor: primaryBrand,
     alignItems: 'center',
   },
   groupCreateBtnDisabled: {
     opacity: 0.5,
   },
   groupCreateText: {
-    color: '#FFFFFF',
+    color: isDark ? '#0B131F' : '#FFF',
     fontWeight: '700',
   },
-});
+  });
+}

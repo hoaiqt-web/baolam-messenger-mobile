@@ -2,7 +2,7 @@
   "expo": {
     "name": "baolam-messenger-mobile",
     "slug": "baolam-messenger-mobile",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "baolammessengermobile",
@@ -14,6 +14,7 @@
     "android": {
       "package": "com.baolam.messenger",
       "googleServicesFile": "./google-services.json",
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

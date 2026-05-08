@@ -44,7 +44,8 @@ import {
   emojiToCode,
   codeToEmoji,
 } from './chatHelpers';
-import { styles } from './chatStyles';
+import { getChatStyles } from './chatStyles';
+import { useAppTheme } from '@/contexts/ThemeContext';
 
 // Notification sound player
 let _notifSound: Audio.Sound | null = null;
@@ -75,6 +76,8 @@ async function appendUploadedMessage(setMessages: any, payload: any) {
 }
 
 export default function ChatScreen() {
+  const { isDark } = useAppTheme();
+  const styles = getChatStyles(isDark);
   const REALTIME_IDLE_THRESHOLD_MS = 15_000;
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
   const POLL_INTERVAL_DEGRADED_MS = 5_000;
@@ -188,7 +191,7 @@ export default function ChatScreen() {
         });
 
         // Play notification sound for messages from others
-        const incomingSenderId = incoming.sender_id || incoming.senderId || incoming.sender?.id;
+        const incomingSenderId = (incoming as any).sender_id || (incoming as any).senderId || incoming.sender?.id;
         if (incomingSenderId && Number(incomingSenderId) !== currentUserId) {
           void playNotificationSound();
         }

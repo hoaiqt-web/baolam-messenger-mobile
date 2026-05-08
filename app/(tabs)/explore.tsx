@@ -15,12 +15,15 @@ import { authStorage } from '@/features/auth/authStorage';
 import { closeReverbClient } from '@/services/realtime/reverbClient';
 import { unregisterPushTokenFromBackend } from '@/services/notifications/pushNotifications';
 import { useRouter } from 'expo-router';
+import { useAppTheme } from '@/contexts/ThemeContext';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const { theme, setTheme, isDark } = useAppTheme();
+  const styles = getExploreStyles(isDark);
 
   useEffect(() => {
     httpClient
@@ -84,6 +87,26 @@ export default function SettingsScreen() {
           ) : null}
         </View>
 
+        {/* Theme Settings */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Giao diện</Text>
+          
+          <TouchableOpacity style={styles.settingRow} onPress={() => setTheme('light')}>
+            <Text style={styles.settingLabel}>☀️ Chế độ Sáng (Light)</Text>
+            {theme === 'light' && <Text style={styles.settingCheck}>✓</Text>}
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.settingRow} onPress={() => setTheme('dark')}>
+            <Text style={styles.settingLabel}>🌙 Chế độ Tối (Dark)</Text>
+            {theme === 'dark' && <Text style={styles.settingCheck}>✓</Text>}
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.settingRow} onPress={() => setTheme('system')}>
+            <Text style={styles.settingLabel}>📱 Theo Hệ Thống (System)</Text>
+            {theme === 'system' && <Text style={styles.settingCheck}>✓</Text>}
+          </TouchableOpacity>
+        </View>
+
         {/* Settings sections */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Thông báo</Text>
@@ -134,118 +157,132 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F0F2F5' },
-  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    backgroundColor: '#1E3A8A',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  scrollView: { flex: 1 },
-  profileCard: {
-    backgroundColor: '#FFFFFF',
-    margin: 16,
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  avatarLarge: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#1E3A8A',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatarLargeText: {
-    color: '#FFFFFF',
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  profileName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  profileUsername: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  profileEmail: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    marginTop: 2,
-  },
-  section: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6B7280',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
-    textTransform: 'uppercase',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#F3F4F6',
-  },
-  settingLabel: {
-    fontSize: 15,
-    color: '#111827',
-  },
-  settingValue: {
-    fontSize: 14,
-    color: '#9CA3AF',
-  },
-  settingArrow: {
-    fontSize: 22,
-    color: '#D1D5DB',
-    fontWeight: '300',
-  },
-  logoutBtn: {
-    backgroundColor: '#EF4444',
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-  },
-  logoutBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  footerText: {
-    textAlign: 'center',
-    color: '#9CA3AF',
-    fontSize: 12,
-    marginTop: 20,
-    marginBottom: 40,
-    lineHeight: 18,
-  },
-});
+const getExploreStyles = (isDark: boolean) => {
+  const bgMain = isDark ? '#0B131F' : '#F0F2F5';
+  const bgCard = isDark ? '#121B2A' : '#FFFFFF';
+  const textPrimary = isDark ? '#FFFFFF' : '#111827';
+  const textSecondary = isDark ? '#9CA3AF' : '#6B7280';
+  const border = isDark ? '#1e2e45' : '#F3F4F6';
+  const primaryBrand = isDark ? '#00D9FF' : '#1E3A8A';
+
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: bgMain },
+    centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    header: {
+      backgroundColor: isDark ? '#09101A' : '#1E3A8A',
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+    },
+    headerTitle: {
+      color: '#FFFFFF',
+      fontSize: 22,
+      fontWeight: 'bold',
+    },
+    scrollView: { flex: 1 },
+    profileCard: {
+      backgroundColor: bgCard,
+      margin: 16,
+      borderRadius: 16,
+      padding: 24,
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.2 : 0.08,
+      shadowRadius: 8,
+      elevation: 3,
+    },
+    avatarLarge: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: primaryBrand,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    avatarLargeText: {
+      color: isDark ? '#0B131F' : '#FFFFFF',
+      fontSize: 32,
+      fontWeight: 'bold',
+    },
+    profileName: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: textPrimary,
+    },
+    profileUsername: {
+      fontSize: 14,
+      color: textSecondary,
+      marginTop: 4,
+    },
+    profileEmail: {
+      fontSize: 13,
+      color: textSecondary,
+      marginTop: 2,
+    },
+    section: {
+      backgroundColor: bgCard,
+      marginHorizontal: 16,
+      marginBottom: 12,
+      borderRadius: 12,
+      overflow: 'hidden',
+    },
+    sectionTitle: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: textSecondary,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 4,
+      textTransform: 'uppercase',
+    },
+    settingRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 0.5,
+      borderBottomColor: border,
+    },
+    settingLabel: {
+      fontSize: 15,
+      color: textPrimary,
+    },
+    settingValue: {
+      fontSize: 14,
+      color: textSecondary,
+    },
+    settingArrow: {
+      fontSize: 22,
+      color: isDark ? '#334155' : '#D1D5DB',
+      fontWeight: '300',
+    },
+    settingCheck: {
+      fontSize: 18,
+      color: '#3B82F6',
+      fontWeight: 'bold',
+    },
+    logoutBtn: {
+      backgroundColor: '#EF4444',
+      marginHorizontal: 16,
+      marginTop: 8,
+      borderRadius: 12,
+      padding: 16,
+      alignItems: 'center',
+    },
+    logoutBtnText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    footerText: {
+      textAlign: 'center',
+      color: textSecondary,
+      fontSize: 12,
+      marginTop: 20,
+      marginBottom: 40,
+      lineHeight: 18,
+    },
+  });
+};
