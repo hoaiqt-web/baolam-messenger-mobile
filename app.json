@@ -14,7 +14,7 @@
     "android": {
       "package": "com.baolam.messenger",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -67,6 +67,12 @@
       "eas": {
         "projectId": "89b10c56-c93a-4071-8c01-beee704341f4"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/89b10c56-c93a-4071-8c01-beee704341f4"
     }
   }
 }
