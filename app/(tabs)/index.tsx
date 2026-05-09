@@ -34,6 +34,7 @@ import {
   presentLocalChatMessageNotification,
   unregisterPushTokenFromBackend,
 } from '@/services/notifications/pushNotifications';
+import { AiAssistantHomeCard } from '@/widgets/chat/AiAssistantHomeCard';
 
 // Color palette for avatars
 const AVATAR_COLORS = [
@@ -552,6 +553,9 @@ export default function HomeScreen() {
               onRefresh={handleRefresh}
               colors={['#1E3A8A']}
             />
+          }
+          ListHeaderComponent={
+            !hasSearch ? <AiAssistantHomeCard /> : undefined
           }
           renderItem={({ item: row, index }) => {
             if (row.rowType === 'user') {

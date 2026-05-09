@@ -125,6 +125,11 @@ type ReverbConversationReadUpdatedPayload = {
   lastReadMessageId: number;
 };
 
+export type ReverbTaskUpdatedPayload = {
+  task: unknown;
+  message: string;
+};
+
 export type ReverbConversationDeletedPayload = {
   conversationId: number;
 };
@@ -332,6 +337,7 @@ export function subscribeConversationMessages(
   onRecalled?: (payload: ReverbMessageEventPayload) => void,
   onReactionUpdated?: (payload: ReverbMessageReactionUpdatedPayload) => void,
   onReadUpdated?: (payload: ReverbConversationReadUpdatedPayload) => void,
+  onTaskUpdated?: (payload: ReverbTaskUpdatedPayload) => void,
 ): () => void {
   const echo = getEchoClient();
   if (!echo) {
@@ -400,6 +406,16 @@ export function subscribeConversationMessages(
     };
     channel.listen('.conversation.read.updated', onReadUpdatedWithHeartbeat);
   }
+  let onTaskUpdatedWithHeartbeat:
+    | ((payload: ReverbTaskUpdatedPayload) => void)
+    | undefined;
+  if (onTaskUpdated) {
+    onTaskUpdatedWithHeartbeat = (payload: ReverbTaskUpdatedPayload) => {
+      markRealtimeInboundActivity();
+      onTaskUpdated(payload);
+    };
+    channel.listen('.task.updated', onTaskUpdatedWithHeartbeat);
+  }
 
   return () => {
     channel.stopListening('.message.sent', onMessageWithHeartbeat);
@@ -423,6 +439,9 @@ export function subscribeConversationMessages(
         '.conversation.read.updated',
         onReadUpdatedWithHeartbeat,
       );
+    }
+    if (onTaskUpdatedWithHeartbeat) {
+      channel.stopListening('.task.updated', onTaskUpdatedWithHeartbeat);
     }
     echo.leave(channelName);
   };
