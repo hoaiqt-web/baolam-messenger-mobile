@@ -43,6 +43,53 @@ type AiSummarizeResponse = {
   data: AiSummarizeData;
 };
 
+/** Summary chunk from GET /ai/my-tasks (first page; fields optional if backend omits). */
+export type MyTasksSummary = {
+  pending?: number;
+  done?: number;
+  total?: number;
+  assigned_pending?: number;
+  created_pending?: number;
+  overdue_pending?: number;
+};
+
+export type MyTasksResponse = {
+  tasks: ConversationTask[];
+  nextCursor: number | null;
+  summary?: MyTasksSummary | null;
+};
+
+/** AI / checklist task row from chat API (shape matches web TaskChecklist + AiAssistant). */
+export type ConversationTask = {
+  id: number;
+  task_title: string;
+  status: string;
+  approval_status?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  deadline?: string | null;
+  assigned_to_user_id?: number | null;
+  source_message_id?: number | null;
+  conversation_id?: number;
+  assigned_to_user?: { full_name?: string; fullName?: string } | null;
+  owner_user?: { full_name?: string; fullName?: string } | null;
+  confirmed_by_user?: { full_name?: string; fullName?: string } | null;
+  /** Web: human vs AI confirmation */
+  confirmed_by_ai?: boolean | null;
+  completion_confidence?: number | null;
+  completion_evidence_message_id?: number | null;
+  source_message?: {
+    sent_at?: string;
+    created_at?: string;
+    sender?: {
+      full_name?: string;
+      fullName?: string;
+      id?: number;
+    };
+    sender_id?: number;
+  } | null;
+};
+
 export const chatApi = {
   async getConversations(): Promise<ConversationsResponse> {
     const { data } = await httpClient.get<ConversationsResponse>("/conversations");
@@ -240,6 +287,125 @@ export const chatApi = {
 
   async summarizeConversation(payload: AiSummarizePayload): Promise<AiSummarizeResponse> {
     const { data } = await httpClient.post<AiSummarizeResponse>("/ai/summarize", payload);
+    return data;
+  },
+
+  async getConversationTasks(conversationId: number): Promise<{ tasks: ConversationTask[] }> {
+    const { data } = await httpClient.get<{ tasks: ConversationTask[] }>(
+      `/conversations/${conversationId}/tasks`,
+    );
+    return data;
+  },
+
+  async getMyTasks(filter?: string, cursor?: number | null): Promise<MyTasksResponse> {
+    const { data } = await httpClient.get<MyTasksResponse>("/ai/my-tasks", {
+      params: { filter, cursor },
+    });
+    return data;
+  },
+
+  async transitionTask(
+    taskId: number,
+    action: string,
+    extra?: { assigned_to_user_id?: number },
+  ): Promise<{
+    success: boolean;
+    task?: unknown;
+    error?: string;
+    missingConditions?: string[];
+    missing_conditions?: string[];
+    message?: string;
+  }> {
+    const { data } = await httpClient.post(`/tasks/${taskId}/transition`, {
+      action,
+      ...extra,
+    });
+    return data;
+  },
+
+  async completeTask(taskId: number): Promise<{
+    success: boolean;
+    status: "DONE" | "NOT_DONE";
+    missingConditions: string[];
+    message: string;
+    task?: unknown;
+  }> {
+    const { data } = await httpClient.post(`/tasks/${taskId}/complete`);
+    return data;
+  },
+
+  async aiConfirmTask(taskId: number): Promise<unknown> {
+    const { data } = await httpClient.post(`/tasks/${taskId}/ai-confirm`);
+    return data;
+  },
+
+  async aiRejectTask(taskId: number): Promise<unknown> {
+    const { data } = await httpClient.post(`/tasks/${taskId}/ai-reject`);
+    return data;
+  },
+
+  async forceScan(): Promise<unknown> {
+    const { data } = await httpClient.get("/ai/force-scan");
+    return data;
+  },
+
+  async createManualTask(
+    conversationId: number,
+    payload: {
+      task_title: string;
+      source_message_id: number | null;
+      assigned_to_user_id?: number | null;
+      priority?: "low" | "medium" | "high";
+      deadline?: string | null;
+    },
+  ): Promise<{ task?: unknown; deduplicated?: boolean; message?: string }> {
+    const { data } = await httpClient.post<{ task?: unknown; deduplicated?: boolean; message?: string }>(
+      `/tasks/create-manual/${conversationId}`,
+      payload,
+    );
+    return data;
+  },
+
+  async suggestTask(
+    conversationId: number,
+    messageId: number,
+  ): Promise<{
+    suggestedTitle: string;
+    suggestedAssigneeId?: number;
+    suggestedPriority?: "low" | "medium" | "high";
+    suggestedDeadline?: string;
+  } | null> {
+    try {
+      const { data } = await httpClient.post<{ tasks?: Array<Record<string, unknown>> }>("/ai/extract-tasks", {
+        conversationId,
+        messageId,
+        limit: 1,
+      });
+      const task = data.tasks?.[0];
+      if (!task) return null;
+      return {
+        suggestedTitle: String(task.task_title ?? ""),
+        suggestedAssigneeId:
+          task.assigned_to_user_id != null ? Number(task.assigned_to_user_id) : undefined,
+        suggestedPriority:
+          task.priority === "low" || task.priority === "high" || task.priority === "medium"
+            ? task.priority
+            : "medium",
+        suggestedDeadline: task.deadline != null ? String(task.deadline) : undefined,
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  async createQuickTask(
+    conversationId: number,
+    sourceMessageId: number,
+  ): Promise<{ task?: unknown; deduplicated?: boolean; message?: string }> {
+    const { data } = await httpClient.post<{ task?: unknown; deduplicated?: boolean; message?: string }>(
+      `/tasks/create-quick/${conversationId}`,
+      { source_message_id: sourceMessageId },
+    );
     return data;
   },
 };

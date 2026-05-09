@@ -1,6 +1,12 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  StyleSheet,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from 'react';
+import {
   Text,
   View,
   TextInput,
@@ -15,9 +21,8 @@ import {
   Image,
   Modal,
   Dimensions,
-  Pressable,
-  StatusBar,
   ScrollView,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -25,7 +30,6 @@ import { httpClient } from '@/services/api/httpClient';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
 import { Audio } from 'expo-av';
 import {
   getLastRealtimeInboundActivityAt,
@@ -54,9 +58,17 @@ import {
 } from '@/features/chat/mentionUtils';
 import {
   fetchAttachmentReadUrl,
-  openAttachmentUrl,
+  openAttachmentWithFallback,
   resolveOpenableAttachmentUrl,
 } from '@/features/chat/attachmentOpenUtils';
+import {
+  buildImageGalleryEntries,
+  findGalleryStartIndex,
+} from '@/features/chat/chatImageGallery';
+import { formatConversationListTitle } from '@/features/chat/conversationDisplayUtils';
+import { TaskChecklistModal } from '@/widgets/chat/TaskChecklistModal';
+import { ManualCreateTaskModal } from '@/widgets/chat/ManualCreateTaskModal';
+import { chatApi } from '@/services/api/chatApi';
 
 // Notification sound player
 let _notifSound: Audio.Sound | null = null;
@@ -84,6 +96,44 @@ async function appendUploadedMessage(setMessages: any, payload: any) {
     );
     return exists ? prev : [actualMessage, ...prev];
   });
+}
+
+/** Backend default limit is 20; max allowed is 100 (see MessageService safeLimit). */
+const CHAT_MESSAGE_PAGE_SIZE = 100;
+
+function messageSortKey(m: any): number {
+  const t = new Date(String(m.sentAt || m.sent_at || m.created_at || 0)).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function sortMessagesNewestFirst(msgs: any[]): any[] {
+  return [...msgs].sort((a, b) => {
+    const dt = messageSortKey(b) - messageSortKey(a);
+    if (dt !== 0) return dt;
+    return Number(b.id) - Number(a.id);
+  });
+}
+
+/** Merge a poll snapshot (API order: oldest → newest) into state without dropping pages loaded via pagination. */
+function mergePollPageIntoMessages(prev: any[], apiOldestFirst: any[]): any[] {
+  const list = Array.isArray(apiOldestFirst) ? apiOldestFirst : [];
+  const incomingNewestFirst = [...list].reverse();
+  const map = new Map<string, any>();
+  const keyOf = (m: any): string => {
+    const id = Number(m.id);
+    if (Number.isFinite(id) && id > 0) return `id:${id}`;
+    const c = String(m.client_message_id || m.clientMessageId || '').trim();
+    return c ? `c:${c}` : '';
+  };
+  for (const m of prev) {
+    const k = keyOf(m);
+    if (k) map.set(k, m);
+  }
+  for (const m of incomingNewestFirst) {
+    const k = keyOf(m);
+    if (k) map.set(k, m);
+  }
+  return sortMessagesNewestFirst(Array.from(map.values()));
 }
 
 type MentionRow =
@@ -116,7 +166,7 @@ export default function ChatScreen() {
   const REALTIME_IDLE_THRESHOLD_MS = 15_000;
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
   const POLL_INTERVAL_DEGRADED_MS = 5_000;
-  const { id, name, type } = useLocalSearchParams();
+  const { id, name, type, jumpMessageId } = useLocalSearchParams();
   const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
@@ -126,14 +176,22 @@ export default function ChatScreen() {
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState(true);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const sendScale = useRef(new Animated.Value(1)).current;
   const conversationId = Number(id);
   const fetchMessagesRef = useRef<() => void>(() => undefined);
   const lastPollAtRef = useRef(0);
+  const loadingOlderRef = useRef(false);
 
   const chatTitle = (name as string) || 'Tin nhắn';
   const isGroup = type === 'group';
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [imageViewer, setImageViewer] = useState<{
+    urls: string[];
+    index: number;
+  } | null>(null);
+  const [galleryVisibleIndex, setGalleryVisibleIndex] = useState(0);
+  const imagePagerRef = useRef<FlatList<string>>(null);
   const [replyTarget, setReplyTarget] = useState<any>(null);
   const [menuTarget, setMenuTarget] = useState<any>(null);
   const [forwardSource, setForwardSource] = useState<any>(null);
@@ -172,6 +230,141 @@ export default function ChatScreen() {
 
   // Deduplicate at render time to guarantee unique keys for FlatList
   const uniqueMessages = useMemo(() => deduplicateMessages(messages), [messages]);
+
+  const fetchMessages = useCallback(
+    async (mode: 'reset' | 'poll' = 'reset') => {
+      try {
+        const { data } = await httpClient.get(`/conversations/${id}/messages`, {
+          params: { limit: CHAT_MESSAGE_PAGE_SIZE },
+        });
+        const raw = data.messages || data.data || [];
+        const list = Array.isArray(raw) ? raw : [];
+        if (mode === 'poll') {
+          setMessages((prev) => mergePollPageIntoMessages(prev, list));
+        } else {
+          setMessages(
+            sortMessagesNewestFirst(deduplicateMessages([...list].reverse())),
+          );
+          setHasMoreOlder(!!data.hasMore);
+        }
+      } catch (error: any) {
+        console.error('Error fetching messages', error);
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [id],
+  );
+
+  const loadOlderMessages = useCallback(() => {
+    if (!hasMoreOlder || loadingOlderRef.current) return;
+
+    const oldest = uniqueMessages[uniqueMessages.length - 1];
+    const beforeId = Number(oldest?.id);
+    if (!Number.isFinite(beforeId) || beforeId <= 0) return;
+
+    loadingOlderRef.current = true;
+    setIsLoadingOlder(true);
+    void (async () => {
+      try {
+        const { data } = await httpClient.get(`/conversations/${id}/messages`, {
+          params: {
+            limit: CHAT_MESSAGE_PAGE_SIZE,
+            beforeMessageId: beforeId,
+          },
+        });
+        const raw = data.messages || data.data || [];
+        const list = Array.isArray(raw) ? raw : [];
+        if (list.length === 0) {
+          setHasMoreOlder(false);
+          return;
+        }
+        const olderNewestFirst = deduplicateMessages([...list].reverse());
+        setMessages((prev) =>
+          sortMessagesNewestFirst(deduplicateMessages([...prev, ...olderNewestFirst])),
+        );
+        setHasMoreOlder(!!data.hasMore);
+      } catch (e) {
+        console.error('Error loading older messages', e);
+      } finally {
+        loadingOlderRef.current = false;
+        setIsLoadingOlder(false);
+      }
+    })();
+  }, [id, hasMoreOlder, uniqueMessages]);
+
+  const [flashMessageId, setFlashMessageId] = useState<number | null>(null);
+  const flashClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (flashClearTimerRef.current) {
+        clearTimeout(flashClearTimerRef.current);
+      }
+    };
+  }, []);
+
+  const imageGalleryEntries = useMemo(
+    () => buildImageGalleryEntries(uniqueMessages),
+    [uniqueMessages],
+  );
+
+  const openImageViewerFor = useCallback(
+    (messageItem: any, attachment: any, resolvedUrl: string) => {
+      const urls = imageGalleryEntries.map((e) => e.url);
+      if (urls.length === 0) {
+        setGalleryVisibleIndex(0);
+        setImageViewer({ urls: [resolvedUrl], index: 0 });
+        return;
+      }
+      const index = findGalleryStartIndex(
+        imageGalleryEntries,
+        messageItem.id,
+        attachment,
+        resolvedUrl,
+      );
+      const safeIndex = Math.min(index, Math.max(0, urls.length - 1));
+      setGalleryVisibleIndex(safeIndex);
+      setImageViewer({ urls, index: safeIndex });
+    },
+    [imageGalleryEntries],
+  );
+
+  const galleryViewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 60,
+  }).current;
+
+  const onGalleryViewableItemsChanged = useCallback(
+    ({
+      viewableItems,
+    }: {
+      viewableItems: { index: number | null }[];
+    }) => {
+      const idx = viewableItems[0]?.index;
+      if (idx != null) {
+        setGalleryVisibleIndex(idx);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!imageViewer?.urls?.length) return;
+    const idx = Math.min(imageViewer.index, imageViewer.urls.length - 1);
+    setGalleryVisibleIndex(idx);
+    const t = setTimeout(() => {
+      try {
+        imagePagerRef.current?.scrollToIndex({
+          index: idx,
+          animated: false,
+        });
+      } catch {
+        /* layout not ready */
+      }
+    }, 80);
+    return () => clearTimeout(t);
+  }, [imageViewer]);
 
   const refreshMentionMenu = useCallback(
     (text: string, caret: number) => {
@@ -233,13 +426,16 @@ export default function ChatScreen() {
       }
     };
     fetchUserId();
-    fetchMessages();
+    setIsLoading(true);
+    setHasMoreOlder(true);
+    loadingOlderRef.current = false;
+    void fetchMessages('reset');
 
     // Mark conversation as read when entering
     if (Number.isFinite(conversationId) && conversationId > 0) {
       httpClient.post(`/conversations/${conversationId}/read`).catch(() => {});
     }
-  }, [id]);
+  }, [id, conversationId, fetchMessages]);
 
   useEffect(() => {
     if (!Number.isFinite(conversationId) || conversationId <= 0) {
@@ -300,31 +496,25 @@ export default function ChatScreen() {
           ),
         );
       },
+      undefined,
+      undefined,
+      () => {
+        setTaskRemoteTick((n) => n + 1);
+      },
     );
   }, [conversationId]);
 
 
-  const fetchMessages = async () => {
-    try {
-      const { data } = await httpClient.get(`/conversations/${id}/messages`);
-      const msgs = data.messages || data.data || [];
-      setMessages(deduplicateMessages(msgs.reverse()));
-    } catch (error: any) {
-      console.error('Error fetching messages', error);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  };
-
   const handleRefresh = () => {
     setIsRefreshing(true);
-    fetchMessages();
+    void fetchMessages('reset');
   };
 
   useEffect(() => {
-    fetchMessagesRef.current = fetchMessages;
-  }, [id]);
+    fetchMessagesRef.current = () => {
+      void fetchMessages('poll');
+    };
+  }, [fetchMessages]);
 
   useEffect(() => {
     if (!Number.isFinite(conversationId) || conversationId <= 0) {
@@ -401,6 +591,25 @@ export default function ChatScreen() {
         },
       },
     ]);
+  };
+
+  const handleQuickCreateTask = async (msg: any) => {
+    const messageId = Number(msg?.id);
+    if (!messageId || !Number.isFinite(conversationId) || conversationId <= 0) return;
+    try {
+      const result = await chatApi.createQuickTask(conversationId, messageId);
+      if (result.deduplicated) {
+        Alert.alert('Thông báo', String(result.message ?? 'Tin nhắn này đã có task.'));
+      } else {
+        Alert.alert('✅', String(result.message ?? 'Đã tạo task nhanh.'));
+      }
+      setTaskRemoteTick((n) => n + 1);
+    } catch (e: unknown) {
+      const msgText =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Không thể tạo task nhanh.';
+      Alert.alert('Lỗi', String(msgText));
+    }
   };
 
   const handleToggleReaction = async (item: any, emoji: string) => {
@@ -598,6 +807,73 @@ export default function ChatScreen() {
   const [msgSearchResults, setMsgSearchResults] = useState<any[]>([]);
   const [isSearchingMsgs, setIsSearchingMsgs] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const scrollToIndexFailRetriesRef = useRef(0);
+  const jumpToMessageIdRef = useRef<number | null>(null);
+  const deepLinkJumpHandledKeyRef = useRef<string | null>(null);
+
+  const handleFlatListScrollToIndexFailed = useCallback(
+    (info: {
+      index: number;
+      highestMeasuredFrameIndex: number;
+      averageItemLength: number;
+    }) => {
+      const list = flatListRef.current;
+      if (!list) {
+        scrollToIndexFailRetriesRef.current = 0;
+        return;
+      }
+      scrollToIndexFailRetriesRef.current += 1;
+      if (scrollToIndexFailRetriesRef.current > 10) {
+        scrollToIndexFailRetriesRef.current = 0;
+        return;
+      }
+      const delay = Math.min(500, 64 * scrollToIndexFailRetriesRef.current);
+      setTimeout(() => {
+        try {
+          list.scrollToIndex({
+            index: info.index,
+            animated: true,
+            viewPosition: 0.35,
+          });
+        } catch {
+          scrollToIndexFailRetriesRef.current = 0;
+        }
+      }, delay);
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    const targetId = jumpToMessageIdRef.current;
+    if (targetId == null) return;
+    const idx = uniqueMessages.findIndex(
+      (m: any) => Number(m.id) === Number(targetId),
+    );
+    if (idx < 0) {
+      jumpToMessageIdRef.current = null;
+      return;
+    }
+    jumpToMessageIdRef.current = null;
+    scrollToIndexFailRetriesRef.current = 0;
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) return;
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        flatListRef.current?.scrollToIndex({
+          index: idx,
+          animated: true,
+          viewPosition: 0.32,
+        });
+      });
+    });
+    return () => {
+      cancelled = true;
+      if (typeof task?.cancel === 'function') {
+        task.cancel();
+      }
+    };
+  }, [uniqueMessages]);
 
   const handleSearchMessages = async (query: string) => {
     setMsgSearchQuery(query);
@@ -624,25 +900,46 @@ export default function ChatScreen() {
     setMsgSearchQuery('');
     setMsgSearchResults([]);
     try {
-      // Load messages around the target
       const { data } = await httpClient.get(
         `/conversations/${conversationId}/messages/around/${messageId}`,
       );
-      const aroundMessages = data.messages || data || [];
-      if (aroundMessages.length > 0) {
-        setMessages(aroundMessages);
-        // Scroll to the target message after a short delay
-        setTimeout(() => {
-          const idx = aroundMessages.findIndex((m: any) => Number(m.id) === messageId);
-          if (idx >= 0 && flatListRef.current) {
-            flatListRef.current.scrollToIndex({ index: idx, animated: true });
-          }
-        }, 300);
+      const raw = data.messages || data || [];
+      const list = Array.isArray(raw) ? raw : [];
+      if (list.length > 0) {
+        if (flashClearTimerRef.current) {
+          clearTimeout(flashClearTimerRef.current);
+          flashClearTimerRef.current = null;
+        }
+        jumpToMessageIdRef.current = messageId;
+        setFlashMessageId(messageId);
+        flashClearTimerRef.current = setTimeout(() => {
+          setFlashMessageId(null);
+          flashClearTimerRef.current = null;
+        }, 2600);
+        // Giữ cùng thứ tự với tải trang thường (newest-first cho FlatList inverted)
+        setMessages(deduplicateMessages([...list].reverse()));
+        setHasMoreOlder(true);
       }
     } catch {
       Alert.alert('Lỗi', 'Không thể nhảy đến tin nhắn');
     }
   };
+
+  useEffect(() => {
+    const raw = jumpMessageId;
+    const j = Array.isArray(raw) ? raw[0] : raw;
+    if (j == null || String(j).trim() === '') {
+      deepLinkJumpHandledKeyRef.current = null;
+      return;
+    }
+    if (!Number.isFinite(conversationId) || conversationId <= 0) return;
+    const mid = Number(j);
+    if (!Number.isFinite(mid) || mid <= 0) return;
+    const key = `${conversationId}:${mid}`;
+    if (deepLinkJumpHandledKeyRef.current === key) return;
+    deepLinkJumpHandledKeyRef.current = key;
+    void handleScrollToMessage(mid);
+  }, [id, jumpMessageId, conversationId, handleScrollToMessage]);
 
   // ===== USER PROFILE =====
   const [showProfile, setShowProfile] = useState(false);
@@ -676,6 +973,11 @@ export default function ChatScreen() {
   const [showAiSummary, setShowAiSummary] = useState(false);
   const [aiSummaryData, setAiSummaryData] = useState<any>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+
+  const [showTaskChecklist, setShowTaskChecklist] = useState(false);
+  const [taskRemoteTick, setTaskRemoteTick] = useState(0);
+  const [manualCreateTaskOpen, setManualCreateTaskOpen] = useState(false);
+  const [manualCreateTaskMessage, setManualCreateTaskMessage] = useState<any | null>(null);
 
   const handleAiSummarize = async () => {
     setIsAiLoading(true);
@@ -713,10 +1015,19 @@ export default function ChatScreen() {
   // Forward: load conversations when forward source is set
   useEffect(() => {
     if (!forwardSource) return;
-    httpClient.get('/conversations')
-      .then(({ data }) => setForwardConversations(data.conversations || data || []))
+    httpClient
+      .get('/conversations')
+      .then(({ data }) => {
+        const raw = data.conversations || data || [];
+        const list = Array.isArray(raw) ? raw : [];
+        setForwardConversations(
+          list.filter(
+            (c: { id?: number }) => Number(c.id) !== Number(conversationId),
+          ),
+        );
+      })
       .catch(() => setForwardConversations([]));
-  }, [forwardSource]);
+  }, [forwardSource, conversationId]);
 
   const handleForwardTo = async (targetConvId: number) => {
     if (!forwardSource) return;
@@ -1013,6 +1324,8 @@ export default function ChatScreen() {
     id?: number;
     url?: string | null;
     downloadUrl?: string | null;
+    originalName?: string | null;
+    original_name?: string | null;
   }) => {
     let url = resolveOpenableAttachmentUrl(attachment);
     if (!url && attachment?.id) {
@@ -1027,8 +1340,12 @@ export default function ChatScreen() {
       Alert.alert('Thông báo', 'Không có liên kết cho tệp này.');
       return;
     }
+    const displayName =
+      attachment.originalName ||
+      (attachment as { original_name?: string }).original_name ||
+      null;
     try {
-      await openAttachmentUrl(url);
+      await openAttachmentWithFallback(url, displayName);
     } catch {
       Alert.alert('Lỗi', 'Không thể mở tệp.');
     }
@@ -1092,7 +1409,7 @@ export default function ChatScreen() {
     const hasText = Boolean(String(item.body || '').trim());
 
     // Check if next message (visually above since inverted) is from same sender
-    const nextMsg = messages[index + 1];
+    const nextMsg = uniqueMessages[index + 1];
     const nextSenderId =
       nextMsg?.sender_id || nextMsg?.senderId || nextMsg?.sender?.id;
     const isFirstInGroup = nextSenderId !== senderId;
@@ -1103,6 +1420,9 @@ export default function ChatScreen() {
       ? formatDateSeparator(nextMsg.sentAt || nextMsg.sent_at || nextMsg.created_at)
       : null;
     const showDateSeparator = !nextMsg || msgDate !== nextDate;
+
+    const isFlashed =
+      flashMessageId != null && Number(item.id) === Number(flashMessageId);
 
     // Recalled message
     const isRecalled = item.isRecalled || item.is_recalled;
@@ -1117,54 +1437,14 @@ export default function ChatScreen() {
       !isMine &&
       (hasText || attachments.length > 0);
 
-    return (
-      <View>
-        {showDateSeparator && msgDate ? (
-          <View style={styles.dateSeparator}>
-            <View style={styles.dateSeparatorLine} />
-            <Text style={styles.dateSeparatorText}>{msgDate}</Text>
-            <View style={styles.dateSeparatorLine} />
-          </View>
-        ) : null}
-        <View
-          style={[
-            styles.messageRow,
-            isMine ? styles.messageRowMine : styles.messageRowOther,
-          ]}
-        >
-        {!isMine && (
-          <View style={styles.avatarCol}>
-            {isFirstInGroup ? (
-              <TouchableOpacity
-                onPress={() => {
-                  const username = item.sender?.username;
-                  if (username) handleViewProfile(username);
-                }}
-              >
-                <View
-                  style={[styles.avatarSmall, { backgroundColor: avatarColor }]}
-                >
-                  <Text style={styles.avatarSmallText}>
-                    {senderName[0].toUpperCase()}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.avatarSpacer} />
-            )}
-          </View>
-        )}
-        <TouchableOpacity
-          style={[styles.bubbleCol, isMine && styles.bubbleColMine]}
-          activeOpacity={0.7}
-          onLongPress={() => handleLongPressMessage(item)}
-          delayLongPress={400}
-        >
-          {!isMine && isFirstInGroup && (
-            <Text style={[styles.senderLabel, { color: avatarColor }]}>
-              {senderName}
-            </Text>
-          )}
+    const useGroupedFrame =
+      !isRecalled &&
+      ((!!replyTo && !!replySnippet) || showReply);
+
+    const canForward = !isRecalled && !item.is_optimistic;
+
+    const messageCore = (
+      <>
           {/* Reply quote */}
           {replyTo && replySnippet ? (
             <View style={styles.replyQuote}>
@@ -1199,7 +1479,9 @@ export default function ChatScreen() {
                       <TouchableOpacity
                         key={key}
                         activeOpacity={0.8}
-                        onPress={() => setPreviewImageUrl(imageUrl)}
+                        onPress={() =>
+                          openImageViewerFor(item, attachment, imageUrl)
+                        }
                       >
                         <Image
                           source={{ uri: imageUrl }}
@@ -1313,7 +1595,103 @@ export default function ChatScreen() {
               ) : null}
             </View>
           ) : null}
+      </>
+    );
+
+    return (
+      <View
+        style={
+          isFlashed
+            ? {
+                backgroundColor: 'rgba(234, 179, 8, 0.14)',
+                borderRadius: 12,
+                marginHorizontal: 2,
+                paddingVertical: 4,
+              }
+            : undefined
+        }
+      >
+        {showDateSeparator && msgDate ? (
+          <View style={styles.dateSeparator}>
+            <View style={styles.dateSeparatorLine} />
+            <Text style={styles.dateSeparatorText}>{msgDate}</Text>
+            <View style={styles.dateSeparatorLine} />
+          </View>
+        ) : null}
+        <View
+          style={[
+            styles.messageRow,
+            isMine ? styles.messageRowMine : styles.messageRowOther,
+          ]}
+        >
+        {!isMine && (
+          <View style={styles.avatarCol}>
+            {isFirstInGroup ? (
+              <TouchableOpacity
+                onPress={() => {
+                  const username = item.sender?.username;
+                  if (username) handleViewProfile(username);
+                }}
+              >
+                <View
+                  style={[styles.avatarSmall, { backgroundColor: avatarColor }]}
+                >
+                  <Text style={styles.avatarSmallText}>
+                    {senderName[0].toUpperCase()}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.avatarSpacer} />
+            )}
+          </View>
+        )}
+        {isMine && canForward ? (
+          <TouchableOpacity
+            style={styles.messageSideAction}
+            onPress={() => setForwardSource(item)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Chuyển tiếp tin nhắn"
+          >
+            <Ionicons name="arrow-redo-outline" size={20} color={replyAccentColor} />
+          </TouchableOpacity>
+        ) : null}
+        <TouchableOpacity
+          style={[styles.bubbleCol, isMine && styles.bubbleColMine]}
+          activeOpacity={0.7}
+          onLongPress={() => handleLongPressMessage(item)}
+          delayLongPress={400}
+        >
+          {!isMine && isFirstInGroup && (
+            <Text style={[styles.senderLabel, { color: avatarColor }]}>
+              {senderName}
+            </Text>
+          )}
+          {useGroupedFrame ? (
+            <View
+              style={[
+                styles.messageGroupedFrame,
+                isMine && styles.messageGroupedFrameMine,
+              ]}
+            >
+              {messageCore}
+            </View>
+          ) : (
+            messageCore
+          )}
         </TouchableOpacity>
+        {!isMine && canForward ? (
+          <TouchableOpacity
+            style={styles.messageSideAction}
+            onPress={() => setForwardSource(item)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Chuyển tiếp tin nhắn"
+          >
+            <Ionicons name="arrow-redo-outline" size={20} color={replyAccentColor} />
+          </TouchableOpacity>
+        ) : null}
         </View>
       </View>
     );
@@ -1336,6 +1714,12 @@ export default function ChatScreen() {
               </View>
               <TouchableOpacity onPress={() => setShowMsgSearch(true)}>
                 <Ionicons name="search-outline" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowTaskChecklist(true)}
+                accessibilityLabel="Checklist công việc"
+              >
+                <Ionicons name="checkbox-outline" size={20} color="#FFFFFF" />
               </TouchableOpacity>
               <TouchableOpacity onPress={handleAiSummarize}>
                 <Ionicons name="sparkles-outline" size={20} color="#FFFFFF" />
@@ -1374,9 +1758,25 @@ export default function ChatScreen() {
             }}
             renderItem={renderMessage}
             inverted
+            extraData={flashMessageId}
+            windowSize={12}
+            maxToRenderPerBatch={10}
+            updateCellsBatchingPeriod={50}
+            initialNumToRender={14}
+            removeClippedSubviews={Platform.OS === 'android'}
             contentContainerStyle={styles.messageList}
             onRefresh={handleRefresh}
             refreshing={isRefreshing}
+            onScrollToIndexFailed={handleFlatListScrollToIndexFailed}
+            onEndReached={hasMoreOlder ? loadOlderMessages : undefined}
+            onEndReachedThreshold={0.25}
+            ListFooterComponent={
+              isLoadingOlder ? (
+                <View style={{ paddingVertical: 12 }}>
+                  <ActivityIndicator size="small" color="#1E3A8A" />
+                </View>
+              ) : null
+            }
             ListEmptyComponent={
               <View style={styles.emptyChat}>
                 <Text style={styles.emptyChatIcon}>💬</Text>
@@ -1516,48 +1916,80 @@ export default function ChatScreen() {
         </KeyboardAvoidingView>
       )}
 
-      {/* Full-screen image preview with zoom */}
+      {/* Full-screen image viewer: swipe through thread images */}
       <Modal
-        visible={!!previewImageUrl}
+        visible={!!imageViewer}
         transparent
         animationType="fade"
-        onRequestClose={() => setPreviewImageUrl(null)}
+        onRequestClose={() => setImageViewer(null)}
         statusBarTranslucent
       >
         <View style={styles.imagePreviewOverlay}>
           <View style={styles.imagePreviewHeader}>
+            {imageViewer && imageViewer.urls.length > 1 ? (
+              <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '600' }}>
+                {galleryVisibleIndex + 1} / {imageViewer.urls.length}
+              </Text>
+            ) : (
+              <View />
+            )}
             <TouchableOpacity
-              onPress={() => setPreviewImageUrl(null)}
+              onPress={() => setImageViewer(null)}
               style={styles.imagePreviewCloseBtn}
             >
               <Ionicons name="close" size={24} color="#FFF" />
             </TouchableOpacity>
           </View>
-          {previewImageUrl && (
-            <ReactNativeZoomableView
-              maxZoom={5}
-              minZoom={1}
-              zoomStep={0.5}
-              initialZoom={1}
-              bindToBorders
-              doubleTapZoomToCenter
-              style={{ flex: 1 }}
-              contentWidth={screenWidth}
-              contentHeight={screenHeight * 0.8}
-            >
-              <Image
-                source={{ uri: previewImageUrl }}
-                style={{
-                  width: screenWidth,
-                  height: screenHeight * 0.8,
+          {imageViewer && imageViewer.urls.length > 0 ? (
+            <View style={styles.imagePreviewPagerWrap}>
+              <FlatList
+                ref={imagePagerRef}
+                data={imageViewer.urls}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                style={{ flex: 1 }}
+                keyExtractor={(uri, i) => `${i}-${uri}`}
+                renderItem={({ item: uri }) => (
+                  <View
+                    style={{
+                      width: screenWidth,
+                      flex: 1,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Image
+                      source={{ uri }}
+                      style={{
+                        width: screenWidth,
+                        height: screenHeight * 0.82,
+                      }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                )}
+                getItemLayout={(_, index) => ({
+                  length: screenWidth,
+                  offset: screenWidth * index,
+                  index,
+                })}
+                viewabilityConfig={galleryViewabilityConfig}
+                onViewableItemsChanged={onGalleryViewableItemsChanged}
+                onScrollToIndexFailed={(info) => {
+                  setTimeout(() => {
+                    imagePagerRef.current?.scrollToIndex({
+                      index: info.index,
+                      animated: false,
+                    });
+                  }, 120);
                 }}
-                resizeMode="contain"
               />
-            </ReactNativeZoomableView>
-          )}
+            </View>
+          ) : null}
           <View style={styles.imagePreviewFooter}>
             <Text style={styles.imagePreviewHint}>
-              Chạm 2 lần để phóng to • Chụm ngón tay để zoom
+              Vuốt ngang để xem ảnh khác trong cuộc trò chuyện
             </Text>
           </View>
         </View>
@@ -1637,6 +2069,38 @@ export default function ChatScreen() {
               <Text style={styles.menuItemText}>Chuyển tiếp</Text>
             </TouchableOpacity>
 
+            {(() => {
+              const mt = menuTarget;
+              const mtRecalled = mt?.isRecalled || mt?.is_recalled;
+              const mtCanTask = !mtRecalled && !mt?.is_optimistic && Number(mt?.id) > 0;
+              return mtCanTask ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    onPress={() => {
+                      setManualCreateTaskMessage(mt);
+                      setManualCreateTaskOpen(true);
+                      setMenuTarget(null);
+                    }}
+                  >
+                    <Text style={styles.menuItemIcon}>📝</Text>
+                    <Text style={styles.menuItemText}>Tạo Task</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    onPress={() => {
+                      const m = mt;
+                      setMenuTarget(null);
+                      void handleQuickCreateTask(m);
+                    }}
+                  >
+                    <Text style={styles.menuItemIcon}>⚡</Text>
+                    <Text style={styles.menuItemText}>Task nhanh</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null;
+            })()}
+
             {/* Pin */}
             <TouchableOpacity
               style={styles.menuItem}
@@ -1705,7 +2169,10 @@ export default function ChatScreen() {
               data={forwardConversations}
               keyExtractor={(c) => String(c.id)}
               renderItem={({ item: conv }) => {
-                const convTitle = conv.name || conv.label || `Hội thoại #${conv.id}`;
+                const convTitle = formatConversationListTitle(
+                  conv,
+                  currentUserId,
+                );
                 return (
                   <TouchableOpacity
                     style={styles.menuItem}
@@ -1965,7 +2432,14 @@ export default function ChatScreen() {
             renderItem={({ item: img }) => (
               <TouchableOpacity
                 style={{ width: '33.33%', aspectRatio: 1, padding: 1 }}
-                onPress={() => { setShowGallery(false); setPreviewImageUrl(img.url || img.path); }}
+                onPress={() => {
+                  setShowGallery(false);
+                  const u = img.url || img.path;
+                  if (u) {
+                    setGalleryVisibleIndex(0);
+                    setImageViewer({ urls: [u], index: 0 });
+                  }
+                }}
               >
                 <Image
                   source={{ uri: img.url || img.path || img.thumbnailUrl }}
@@ -2144,6 +2618,35 @@ export default function ChatScreen() {
       </Modal>
 
       {/* ===== AI SUMMARY MODAL ===== */}
+      <TaskChecklistModal
+        visible={showTaskChecklist}
+        onClose={() => setShowTaskChecklist(false)}
+        conversationId={conversationId}
+        currentUserId={currentUserId}
+        remoteRefreshTick={taskRemoteTick}
+        onJumpToMessage={(messageId) =>
+          handleScrollToMessage(messageId)
+        }
+        isDark={isDark}
+      />
+
+      <ManualCreateTaskModal
+        visible={manualCreateTaskOpen}
+        onClose={() => {
+          setManualCreateTaskOpen(false);
+          setManualCreateTaskMessage(null);
+        }}
+        isDark={isDark}
+        variant="fromMessage"
+        conversationId={
+          Number.isFinite(conversationId) && conversationId > 0 ? conversationId : null
+        }
+        message={manualCreateTaskMessage}
+        conversations={[]}
+        initialParticipants={chatParticipants}
+        onCreated={() => setTaskRemoteTick((n) => n + 1)}
+      />
+
       <Modal visible={showAiSummary} transparent animationType="slide" onRequestClose={() => setShowAiSummary(false)}>
         <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowAiSummary(false)}>
           <View style={[styles.menuSheet, { maxHeight: screenHeight * 0.75 }]}>
