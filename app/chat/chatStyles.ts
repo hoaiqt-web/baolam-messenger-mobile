@@ -83,6 +83,7 @@ export const getChatStyles = (isDark: boolean) => {
     replyPreviewBar: { width: 3, height: '100%', backgroundColor: primaryBrand, borderRadius: 2, marginRight: 8, minHeight: 30 },
     replyPreviewContent: { flex: 1 },
     replyPreviewSender: { fontSize: 12, fontWeight: '700', color: primaryBrand },
+    replyPreviewTitle: { fontSize: 11, color: textSecondary },
     replyPreviewText: { fontSize: 12, color: textSecondary, marginTop: 2 },
     replyPreviewClose: { padding: 4, marginLeft: 8 },
 
@@ -95,6 +96,16 @@ export const getChatStyles = (isDark: boolean) => {
     reactionBadgeActive: { backgroundColor: isDark ? '#1e3a8a' : '#EFF6FF', borderColor: '#3B82F6' },
     reactionEmoji: { fontSize: 14 },
     reactionCount: { fontSize: 11, color: textSecondary, marginLeft: 2 },
+
+    replyInlineBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 2,
+      paddingRight: 8,
+    },
+    replyInlineText: { fontSize: 12, color: primaryBrand, fontWeight: '600' },
+    messageFooterTime: { flexShrink: 0 },
 
     menuOverlay: { flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
     menuSheet: { backgroundColor: bgCard, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 16, paddingBottom: 32, paddingHorizontal: 16 },
