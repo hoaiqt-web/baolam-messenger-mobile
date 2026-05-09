@@ -32,6 +32,27 @@ export const getChatStyles = (isDark: boolean) => {
     bubbleCol: { maxWidth: '75%' },
     bubbleColMine: { alignItems: 'flex-end' },
 
+    /** Bọc trích dẫn trả lời + bubble + hàng Trả lời để nhìn thấy rõ cùng một nhóm */
+    messageGroupedFrame: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 14,
+      padding: 6,
+      alignSelf: 'flex-start',
+      maxWidth: '100%',
+    },
+    messageGroupedFrameMine: {
+      borderColor: isDark ? 'rgba(0, 217, 255, 0.35)' : 'rgba(30, 58, 138, 0.35)',
+      alignSelf: 'flex-end',
+    },
+    messageSideAction: {
+      width: 32,
+      alignSelf: 'stretch',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 2,
+    },
+
     senderLabel: { fontSize: 12, fontWeight: '600', marginBottom: 2, marginLeft: 4, color: textSecondary },
 
     bubble: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 18 },
@@ -62,11 +83,22 @@ export const getChatStyles = (isDark: boolean) => {
     sendBtnDisabled: { backgroundColor: bgInput },
     sendBtnIcon: { color: isDark ? '#0B131F' : '#FFF', fontSize: 20, marginLeft: 2 },
 
-    imagePreviewOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.95)', justifyContent: 'center', alignItems: 'center' },
-    imagePreviewHeader: { position: 'absolute', top: 50, right: 20, zIndex: 10 },
+    imagePreviewOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    },
+    imagePreviewHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingTop: 48,
+      paddingBottom: 8,
+    },
+    imagePreviewPagerWrap: { flex: 1, width: '100%' },
     imagePreviewCloseBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255, 255, 255, 0.15)', justifyContent: 'center', alignItems: 'center' },
     imagePreviewCloseText: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
-    imagePreviewFooter: { position: 'absolute', bottom: 40, left: 0, right: 0, alignItems: 'center' },
+    imagePreviewFooter: { paddingBottom: 32, paddingHorizontal: 16, alignItems: 'center' },
     imagePreviewHint: { color: 'rgba(255, 255, 255, 0.5)', fontSize: 12 },
 
     dateSeparator: { flexDirection: 'row', alignItems: 'center', marginVertical: 16, paddingHorizontal: 20 },

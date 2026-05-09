@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  StyleSheet,
   Text,
   View,
   TextInput,
@@ -15,8 +14,6 @@ import {
   Image,
   Modal,
   Dimensions,
-  Pressable,
-  StatusBar,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,7 +22,6 @@ import { httpClient } from '@/services/api/httpClient';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
 import { Audio } from 'expo-av';
 import {
   getLastRealtimeInboundActivityAt,
@@ -54,9 +50,14 @@ import {
 } from '@/features/chat/mentionUtils';
 import {
   fetchAttachmentReadUrl,
-  openAttachmentUrl,
+  openAttachmentWithFallback,
   resolveOpenableAttachmentUrl,
 } from '@/features/chat/attachmentOpenUtils';
+import {
+  buildImageGalleryEntries,
+  findGalleryStartIndex,
+} from '@/features/chat/chatImageGallery';
+import { formatConversationListTitle } from '@/features/chat/conversationDisplayUtils';
 
 // Notification sound player
 let _notifSound: Audio.Sound | null = null;
@@ -133,7 +134,12 @@ export default function ChatScreen() {
 
   const chatTitle = (name as string) || 'Tin nhắn';
   const isGroup = type === 'group';
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [imageViewer, setImageViewer] = useState<{
+    urls: string[];
+    index: number;
+  } | null>(null);
+  const [galleryVisibleIndex, setGalleryVisibleIndex] = useState(0);
+  const imagePagerRef = useRef<FlatList<string>>(null);
   const [replyTarget, setReplyTarget] = useState<any>(null);
   const [menuTarget, setMenuTarget] = useState<any>(null);
   const [forwardSource, setForwardSource] = useState<any>(null);
@@ -172,6 +178,67 @@ export default function ChatScreen() {
 
   // Deduplicate at render time to guarantee unique keys for FlatList
   const uniqueMessages = useMemo(() => deduplicateMessages(messages), [messages]);
+
+  const imageGalleryEntries = useMemo(
+    () => buildImageGalleryEntries(uniqueMessages),
+    [uniqueMessages],
+  );
+
+  const openImageViewerFor = useCallback(
+    (messageItem: any, attachment: any, resolvedUrl: string) => {
+      const urls = imageGalleryEntries.map((e) => e.url);
+      if (urls.length === 0) {
+        setGalleryVisibleIndex(0);
+        setImageViewer({ urls: [resolvedUrl], index: 0 });
+        return;
+      }
+      const index = findGalleryStartIndex(
+        imageGalleryEntries,
+        messageItem.id,
+        attachment,
+        resolvedUrl,
+      );
+      const safeIndex = Math.min(index, Math.max(0, urls.length - 1));
+      setGalleryVisibleIndex(safeIndex);
+      setImageViewer({ urls, index: safeIndex });
+    },
+    [imageGalleryEntries],
+  );
+
+  const galleryViewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 60,
+  }).current;
+
+  const onGalleryViewableItemsChanged = useCallback(
+    ({
+      viewableItems,
+    }: {
+      viewableItems: { index: number | null }[];
+    }) => {
+      const idx = viewableItems[0]?.index;
+      if (idx != null) {
+        setGalleryVisibleIndex(idx);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!imageViewer?.urls?.length) return;
+    const idx = Math.min(imageViewer.index, imageViewer.urls.length - 1);
+    setGalleryVisibleIndex(idx);
+    const t = setTimeout(() => {
+      try {
+        imagePagerRef.current?.scrollToIndex({
+          index: idx,
+          animated: false,
+        });
+      } catch {
+        /* layout not ready */
+      }
+    }, 80);
+    return () => clearTimeout(t);
+  }, [imageViewer]);
 
   const refreshMentionMenu = useCallback(
     (text: string, caret: number) => {
@@ -713,10 +780,19 @@ export default function ChatScreen() {
   // Forward: load conversations when forward source is set
   useEffect(() => {
     if (!forwardSource) return;
-    httpClient.get('/conversations')
-      .then(({ data }) => setForwardConversations(data.conversations || data || []))
+    httpClient
+      .get('/conversations')
+      .then(({ data }) => {
+        const raw = data.conversations || data || [];
+        const list = Array.isArray(raw) ? raw : [];
+        setForwardConversations(
+          list.filter(
+            (c: { id?: number }) => Number(c.id) !== Number(conversationId),
+          ),
+        );
+      })
       .catch(() => setForwardConversations([]));
-  }, [forwardSource]);
+  }, [forwardSource, conversationId]);
 
   const handleForwardTo = async (targetConvId: number) => {
     if (!forwardSource) return;
@@ -1013,6 +1089,8 @@ export default function ChatScreen() {
     id?: number;
     url?: string | null;
     downloadUrl?: string | null;
+    originalName?: string | null;
+    original_name?: string | null;
   }) => {
     let url = resolveOpenableAttachmentUrl(attachment);
     if (!url && attachment?.id) {
@@ -1027,8 +1105,12 @@ export default function ChatScreen() {
       Alert.alert('Thông báo', 'Không có liên kết cho tệp này.');
       return;
     }
+    const displayName =
+      attachment.originalName ||
+      (attachment as { original_name?: string }).original_name ||
+      null;
     try {
-      await openAttachmentUrl(url);
+      await openAttachmentWithFallback(url, displayName);
     } catch {
       Alert.alert('Lỗi', 'Không thể mở tệp.');
     }
@@ -1117,54 +1199,14 @@ export default function ChatScreen() {
       !isMine &&
       (hasText || attachments.length > 0);
 
-    return (
-      <View>
-        {showDateSeparator && msgDate ? (
-          <View style={styles.dateSeparator}>
-            <View style={styles.dateSeparatorLine} />
-            <Text style={styles.dateSeparatorText}>{msgDate}</Text>
-            <View style={styles.dateSeparatorLine} />
-          </View>
-        ) : null}
-        <View
-          style={[
-            styles.messageRow,
-            isMine ? styles.messageRowMine : styles.messageRowOther,
-          ]}
-        >
-        {!isMine && (
-          <View style={styles.avatarCol}>
-            {isFirstInGroup ? (
-              <TouchableOpacity
-                onPress={() => {
-                  const username = item.sender?.username;
-                  if (username) handleViewProfile(username);
-                }}
-              >
-                <View
-                  style={[styles.avatarSmall, { backgroundColor: avatarColor }]}
-                >
-                  <Text style={styles.avatarSmallText}>
-                    {senderName[0].toUpperCase()}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.avatarSpacer} />
-            )}
-          </View>
-        )}
-        <TouchableOpacity
-          style={[styles.bubbleCol, isMine && styles.bubbleColMine]}
-          activeOpacity={0.7}
-          onLongPress={() => handleLongPressMessage(item)}
-          delayLongPress={400}
-        >
-          {!isMine && isFirstInGroup && (
-            <Text style={[styles.senderLabel, { color: avatarColor }]}>
-              {senderName}
-            </Text>
-          )}
+    const useGroupedFrame =
+      !isRecalled &&
+      ((!!replyTo && !!replySnippet) || showReply);
+
+    const canForward = !isRecalled && !item.is_optimistic;
+
+    const messageCore = (
+      <>
           {/* Reply quote */}
           {replyTo && replySnippet ? (
             <View style={styles.replyQuote}>
@@ -1199,7 +1241,9 @@ export default function ChatScreen() {
                       <TouchableOpacity
                         key={key}
                         activeOpacity={0.8}
-                        onPress={() => setPreviewImageUrl(imageUrl)}
+                        onPress={() =>
+                          openImageViewerFor(item, attachment, imageUrl)
+                        }
                       >
                         <Image
                           source={{ uri: imageUrl }}
@@ -1313,7 +1357,92 @@ export default function ChatScreen() {
               ) : null}
             </View>
           ) : null}
+      </>
+    );
+
+    return (
+      <View>
+        {showDateSeparator && msgDate ? (
+          <View style={styles.dateSeparator}>
+            <View style={styles.dateSeparatorLine} />
+            <Text style={styles.dateSeparatorText}>{msgDate}</Text>
+            <View style={styles.dateSeparatorLine} />
+          </View>
+        ) : null}
+        <View
+          style={[
+            styles.messageRow,
+            isMine ? styles.messageRowMine : styles.messageRowOther,
+          ]}
+        >
+        {!isMine && (
+          <View style={styles.avatarCol}>
+            {isFirstInGroup ? (
+              <TouchableOpacity
+                onPress={() => {
+                  const username = item.sender?.username;
+                  if (username) handleViewProfile(username);
+                }}
+              >
+                <View
+                  style={[styles.avatarSmall, { backgroundColor: avatarColor }]}
+                >
+                  <Text style={styles.avatarSmallText}>
+                    {senderName[0].toUpperCase()}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.avatarSpacer} />
+            )}
+          </View>
+        )}
+        {isMine && canForward ? (
+          <TouchableOpacity
+            style={styles.messageSideAction}
+            onPress={() => setForwardSource(item)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Chuyển tiếp tin nhắn"
+          >
+            <Ionicons name="arrow-redo-outline" size={20} color={replyAccentColor} />
+          </TouchableOpacity>
+        ) : null}
+        <TouchableOpacity
+          style={[styles.bubbleCol, isMine && styles.bubbleColMine]}
+          activeOpacity={0.7}
+          onLongPress={() => handleLongPressMessage(item)}
+          delayLongPress={400}
+        >
+          {!isMine && isFirstInGroup && (
+            <Text style={[styles.senderLabel, { color: avatarColor }]}>
+              {senderName}
+            </Text>
+          )}
+          {useGroupedFrame ? (
+            <View
+              style={[
+                styles.messageGroupedFrame,
+                isMine && styles.messageGroupedFrameMine,
+              ]}
+            >
+              {messageCore}
+            </View>
+          ) : (
+            messageCore
+          )}
         </TouchableOpacity>
+        {!isMine && canForward ? (
+          <TouchableOpacity
+            style={styles.messageSideAction}
+            onPress={() => setForwardSource(item)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Chuyển tiếp tin nhắn"
+          >
+            <Ionicons name="arrow-redo-outline" size={20} color={replyAccentColor} />
+          </TouchableOpacity>
+        ) : null}
         </View>
       </View>
     );
@@ -1516,48 +1645,80 @@ export default function ChatScreen() {
         </KeyboardAvoidingView>
       )}
 
-      {/* Full-screen image preview with zoom */}
+      {/* Full-screen image viewer: swipe through thread images */}
       <Modal
-        visible={!!previewImageUrl}
+        visible={!!imageViewer}
         transparent
         animationType="fade"
-        onRequestClose={() => setPreviewImageUrl(null)}
+        onRequestClose={() => setImageViewer(null)}
         statusBarTranslucent
       >
         <View style={styles.imagePreviewOverlay}>
           <View style={styles.imagePreviewHeader}>
+            {imageViewer && imageViewer.urls.length > 1 ? (
+              <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '600' }}>
+                {galleryVisibleIndex + 1} / {imageViewer.urls.length}
+              </Text>
+            ) : (
+              <View />
+            )}
             <TouchableOpacity
-              onPress={() => setPreviewImageUrl(null)}
+              onPress={() => setImageViewer(null)}
               style={styles.imagePreviewCloseBtn}
             >
               <Ionicons name="close" size={24} color="#FFF" />
             </TouchableOpacity>
           </View>
-          {previewImageUrl && (
-            <ReactNativeZoomableView
-              maxZoom={5}
-              minZoom={1}
-              zoomStep={0.5}
-              initialZoom={1}
-              bindToBorders
-              doubleTapZoomToCenter
-              style={{ flex: 1 }}
-              contentWidth={screenWidth}
-              contentHeight={screenHeight * 0.8}
-            >
-              <Image
-                source={{ uri: previewImageUrl }}
-                style={{
-                  width: screenWidth,
-                  height: screenHeight * 0.8,
+          {imageViewer && imageViewer.urls.length > 0 ? (
+            <View style={styles.imagePreviewPagerWrap}>
+              <FlatList
+                ref={imagePagerRef}
+                data={imageViewer.urls}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                style={{ flex: 1 }}
+                keyExtractor={(uri, i) => `${i}-${uri}`}
+                renderItem={({ item: uri }) => (
+                  <View
+                    style={{
+                      width: screenWidth,
+                      flex: 1,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Image
+                      source={{ uri }}
+                      style={{
+                        width: screenWidth,
+                        height: screenHeight * 0.82,
+                      }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                )}
+                getItemLayout={(_, index) => ({
+                  length: screenWidth,
+                  offset: screenWidth * index,
+                  index,
+                })}
+                viewabilityConfig={galleryViewabilityConfig}
+                onViewableItemsChanged={onGalleryViewableItemsChanged}
+                onScrollToIndexFailed={(info) => {
+                  setTimeout(() => {
+                    imagePagerRef.current?.scrollToIndex({
+                      index: info.index,
+                      animated: false,
+                    });
+                  }, 120);
                 }}
-                resizeMode="contain"
               />
-            </ReactNativeZoomableView>
-          )}
+            </View>
+          ) : null}
           <View style={styles.imagePreviewFooter}>
             <Text style={styles.imagePreviewHint}>
-              Chạm 2 lần để phóng to • Chụm ngón tay để zoom
+              Vuốt ngang để xem ảnh khác trong cuộc trò chuyện
             </Text>
           </View>
         </View>
@@ -1705,7 +1866,10 @@ export default function ChatScreen() {
               data={forwardConversations}
               keyExtractor={(c) => String(c.id)}
               renderItem={({ item: conv }) => {
-                const convTitle = conv.name || conv.label || `Hội thoại #${conv.id}`;
+                const convTitle = formatConversationListTitle(
+                  conv,
+                  currentUserId,
+                );
                 return (
                   <TouchableOpacity
                     style={styles.menuItem}
@@ -1965,7 +2129,14 @@ export default function ChatScreen() {
             renderItem={({ item: img }) => (
               <TouchableOpacity
                 style={{ width: '33.33%', aspectRatio: 1, padding: 1 }}
-                onPress={() => { setShowGallery(false); setPreviewImageUrl(img.url || img.path); }}
+                onPress={() => {
+                  setShowGallery(false);
+                  const u = img.url || img.path;
+                  if (u) {
+                    setGalleryVisibleIndex(0);
+                    setImageViewer({ urls: [u], index: 0 });
+                  }
+                }}
               >
                 <Image
                   source={{ uri: img.url || img.path || img.thumbnailUrl }}
