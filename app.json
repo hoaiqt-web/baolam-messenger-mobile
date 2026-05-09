@@ -14,7 +14,7 @@
     "android": {
       "package": "com.baolam.messenger",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 3,
+      "versionCode": 5,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

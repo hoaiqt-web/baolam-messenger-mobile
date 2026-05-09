@@ -19,7 +19,6 @@ import {
   StatusBar,
   ScrollView,
 } from 'react-native';
-import { Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { httpClient } from '@/services/api/httpClient';
@@ -46,6 +45,18 @@ import {
 } from './chatHelpers';
 import { getChatStyles } from './chatStyles';
 import { useAppTheme } from '@/contexts/ThemeContext';
+import {
+  EVERYONE_MENTION_USERNAME,
+  buildMentionIds,
+  findActiveMention,
+  foldMentionSearchText,
+  type MentionParticipant,
+} from '@/features/chat/mentionUtils';
+import {
+  fetchAttachmentReadUrl,
+  openAttachmentUrl,
+  resolveOpenableAttachmentUrl,
+} from '@/features/chat/attachmentOpenUtils';
 
 // Notification sound player
 let _notifSound: Audio.Sound | null = null;
@@ -75,9 +86,33 @@ async function appendUploadedMessage(setMessages: any, payload: any) {
   });
 }
 
+type MentionRow =
+  | { type: 'all' }
+  | { type: 'user'; user: MentionParticipant };
+
+function buildMentionRows(
+  query: string,
+  participants: MentionParticipant[],
+): MentionRow[] {
+  const q = query;
+  if (q.length === 0) {
+    return [{ type: 'all' }];
+  }
+  const foldedQ = foldMentionSearchText(q);
+  const filtered = participants.filter((p) => {
+    const name = foldMentionSearchText(
+      String(p.fullName ?? (p as { full_name?: string }).full_name ?? ''),
+    );
+    const uname = foldMentionSearchText(String(p.username ?? ''));
+    return name.includes(foldedQ) || uname.includes(foldedQ);
+  });
+  return filtered.slice(0, 8).map((u) => ({ type: 'user' as const, user: u }));
+}
+
 export default function ChatScreen() {
   const { isDark } = useAppTheme();
   const styles = getChatStyles(isDark);
+  const replyAccentColor = isDark ? '#00D9FF' : '#1E3A8A';
   const REALTIME_IDLE_THRESHOLD_MS = 15_000;
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
   const POLL_INTERVAL_DEGRADED_MS = 5_000;
@@ -103,8 +138,12 @@ export default function ChatScreen() {
   const [menuTarget, setMenuTarget] = useState<any>(null);
   const [forwardSource, setForwardSource] = useState<any>(null);
   const [forwardConversations, setForwardConversations] = useState<any[]>([]);
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [mentionSuggestions, setMentionSuggestions] = useState<any[]>([]);
+  const [mentionRows, setMentionRows] = useState<MentionRow[]>([]);
+  const mentionCaretRef = useRef(0);
+  const mentionActiveRef = useRef<ReturnType<typeof findActiveMention>>(null);
+  const inputTextRef = useRef('');
+  const composerInputRef = useRef<TextInput>(null);
+  const [chatParticipants, setChatParticipants] = useState<MentionParticipant[]>([]);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
 
@@ -133,6 +172,56 @@ export default function ChatScreen() {
 
   // Deduplicate at render time to guarantee unique keys for FlatList
   const uniqueMessages = useMemo(() => deduplicateMessages(messages), [messages]);
+
+  const refreshMentionMenu = useCallback(
+    (text: string, caret: number) => {
+      const safeCaret = Math.min(Math.max(0, caret), text.length);
+      const active = findActiveMention(text, safeCaret);
+      mentionActiveRef.current = active;
+      if (!active) {
+        setMentionRows([]);
+        return;
+      }
+      setMentionRows(buildMentionRows(active.query, chatParticipants));
+    },
+    [chatParticipants],
+  );
+
+  useEffect(() => {
+    if (!Number.isFinite(conversationId) || conversationId <= 0) {
+      return;
+    }
+    const loadParticipants = async () => {
+      try {
+        const { data } = await httpClient.get(
+          `/conversations/${conversationId}/participants`,
+        );
+        const list = data.participants || data || [];
+        if (Array.isArray(list) && list.length > 0) {
+          setChatParticipants(list);
+          return;
+        }
+      } catch {
+        // Endpoint missing on older backend — fall back below
+      }
+      try {
+        const { data } = await httpClient.get('/conversations');
+        const convs = data.conversations || data || [];
+        const found = convs.find(
+          (c: { id?: number }) => Number(c.id) === conversationId,
+        );
+        const list = found?.participants || [];
+        setChatParticipants(Array.isArray(list) ? list : []);
+      } catch {
+        setChatParticipants([]);
+      }
+    };
+    void loadParticipants();
+  }, [conversationId]);
+
+  useEffect(() => {
+    refreshMentionMenu(inputTextRef.current, mentionCaretRef.current);
+  }, [chatParticipants, refreshMentionMenu]);
 
   useEffect(() => {
     const fetchUserId = async () => {
@@ -362,7 +451,9 @@ export default function ChatScreen() {
   const fetchGroupMembers = async () => {
     try {
       const { data } = await httpClient.get(`/conversations/${conversationId}/participants`);
-      setGroupMembers(data.participants || data || []);
+      const list = data.participants || data || [];
+      setGroupMembers(list);
+      setChatParticipants(list);
     } catch {
       setGroupMembers([]);
     }
@@ -629,17 +720,17 @@ export default function ChatScreen() {
 
   const handleForwardTo = async (targetConvId: number) => {
     if (!forwardSource) return;
+    const traceId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `fwd-${Date.now()}`;
     try {
-      const forwardedFrom = {
-        id: forwardSource.id,
-        body: forwardSource.body || '',
-        sender: forwardSource.sender || { id: 0, username: '', fullName: '' },
-        attachments: forwardSource.attachments || [],
-        isRecalled: false,
-      };
       await httpClient.post(`/conversations/${targetConvId}/messages`, {
         body: '',
-        forwardedFrom,
+        clientMessageId: traceId,
+        traceId,
+        clientSentAt: Date.now(),
+        forwardedFromMessageId: Number(forwardSource.id),
       });
       Alert.alert('✅', 'Đã chuyển tiếp tin nhắn');
     } catch {
@@ -653,48 +744,79 @@ export default function ChatScreen() {
     animateSendButton();
 
     const textToSend = inputText.trim();
-    const replyToId = replyTarget ? Number(replyTarget.id) : undefined;
+    const replySnapshot = replyTarget;
+    const replyToId = replySnapshot ? Number(replySnapshot.id) : undefined;
     setInputText('');
+    inputTextRef.current = '';
     setReplyTarget(null);
+    setMentionRows([]);
     setIsSending(true);
 
-    const tempId = `temp-${Date.now()}`;
+    const traceId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const clientSentAt = Date.now();
+
+    const mentions = buildMentionIds(
+      textToSend,
+      chatParticipants,
+      currentUserId,
+    );
+
     const optimisticMessage = {
-      id: tempId,
+      id: traceId,
+      clientMessageId: traceId,
+      client_message_id: traceId,
       body: textToSend,
       sender_id: currentUserId,
       sentAt: new Date().toISOString(),
       sent_at: new Date().toISOString(),
       is_optimistic: true,
       sender: { id: currentUserId, fullName: 'Bạn' },
-      replyTo: replyTarget
+      replyTo: replySnapshot
         ? {
-            id: replyTarget.id,
-            body: replyTarget.body,
-            sender: replyTarget.sender,
+            id: replySnapshot.id,
+            body: replySnapshot.body,
+            sender: replySnapshot.sender,
           }
         : null,
     };
     setMessages((prev) => [optimisticMessage, ...prev]);
 
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         body: textToSend,
-        client_message_id: tempId,
+        clientMessageId: traceId,
+        traceId,
+        clientSentAt,
       };
       if (replyToId) {
         payload.replyToMessageId = replyToId;
       }
+      if (mentions.length > 0) {
+        payload.mentions = mentions;
+      }
       const { data } = await httpClient.post(`/conversations/${id}/messages`, payload);
       const actualMessage = data.message || data.data || data;
       setMessages((prev) =>
-        prev.map((msg) => (msg.id === tempId ? actualMessage : msg)),
+        prev.map((msg) =>
+          msg.clientMessageId === traceId || msg.client_message_id === traceId
+            ? actualMessage
+            : msg,
+        ),
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error sending message', error);
       Alert.alert('Lỗi', 'Không thể gửi tin nhắn.');
-      setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
+      setMessages((prev) =>
+        prev.filter(
+          (msg) =>
+            msg.clientMessageId !== traceId && msg.client_message_id !== traceId,
+        ),
+      );
       setInputText(textToSend);
+      inputTextRef.current = textToSend;
     } finally {
       setIsSending(false);
     }
@@ -868,6 +990,98 @@ export default function ChatScreen() {
     }
   };
 
+  const applyMentionSelection = (row: MentionRow) => {
+    const text = inputTextRef.current;
+    const active = mentionActiveRef.current;
+    if (!active) return;
+    const before = text.slice(0, active.start);
+    const after = text.slice(active.end);
+    const insertion =
+      row.type === 'all'
+        ? `@${EVERYONE_MENTION_USERNAME} `
+        : `@${row.user.username} `;
+    const next = before + insertion + after;
+    const nextCaret = before.length + insertion.length;
+    inputTextRef.current = next;
+    mentionCaretRef.current = nextCaret;
+    setInputText(next);
+    setMentionRows([]);
+    mentionActiveRef.current = null;
+  };
+
+  const openMessageAttachment = async (attachment: {
+    id?: number;
+    url?: string | null;
+    downloadUrl?: string | null;
+  }) => {
+    let url = resolveOpenableAttachmentUrl(attachment);
+    if (!url && attachment?.id) {
+      try {
+        url = await fetchAttachmentReadUrl(Number(attachment.id));
+      } catch {
+        Alert.alert('Lỗi', 'Không thể lấy liên kết tải xuống.');
+        return;
+      }
+    }
+    if (!url) {
+      Alert.alert('Thông báo', 'Không có liên kết cho tệp này.');
+      return;
+    }
+    try {
+      await openAttachmentUrl(url);
+    } catch {
+      Alert.alert('Lỗi', 'Không thể mở tệp.');
+    }
+  };
+
+  const handleStartReply = useCallback(
+    (item: any) => {
+      const isRecalled = item.isRecalled || item.is_recalled;
+      if (isRecalled) return;
+
+      setReplyTarget(item);
+      setMentionRows([]);
+      mentionActiveRef.current = null;
+
+      const senderId = item.sender_id || item.senderId || item.sender?.id;
+      const sender = item.sender || {};
+      let prefix = '';
+
+      const un = String(sender.username || '').trim();
+      if (un) {
+        prefix = `@${un} `;
+      } else {
+        const fromList = chatParticipants.find(
+          (p) => Number(p.id) === Number(senderId),
+        );
+        if (fromList && String(fromList.username || '').trim()) {
+          prefix = `@${String(fromList.username).trim()} `;
+        } else {
+          const display = String(
+            sender.fullName ||
+              sender.full_name ||
+              fromList?.fullName ||
+              (fromList as { full_name?: string })?.full_name ||
+              '',
+          ).trim();
+          if (display) {
+            prefix = `@${display} `;
+          }
+        }
+      }
+
+      const next = prefix;
+      inputTextRef.current = next;
+      mentionCaretRef.current = next.length;
+      setInputText(next);
+      requestAnimationFrame(() => {
+        composerInputRef.current?.focus?.();
+        refreshMentionMenu(next, next.length);
+      });
+    },
+    [chatParticipants, refreshMentionMenu],
+  );
+
   const renderMessage = ({ item, index }: { item: any; index: number }) => {
     const senderId = item.sender_id || item.senderId || item.sender?.id;
     const isMine = senderId === currentUserId;
@@ -897,6 +1111,11 @@ export default function ChatScreen() {
     const replyTo = item.replyTo || item.reply_to;
     const replySnippet = replyTo?.body ? replyTo.body.slice(0, 80) : null;
     const replySenderName = replyTo?.sender?.fullName || replyTo?.sender?.full_name || replyTo?.sender?.username || '';
+
+    const showReply =
+      !isRecalled &&
+      !isMine &&
+      (hasText || attachments.length > 0);
 
     return (
       <View>
@@ -974,7 +1193,7 @@ export default function ChatScreen() {
                     attachment?.mimeType || '',
                   ).toLowerCase();
                   const isImageAttachment = mimeType.startsWith('image/');
-                  const imageUrl = attachment?.url;
+                  const imageUrl = resolveOpenableAttachmentUrl(attachment);
                   if (isImageAttachment && imageUrl) {
                     return (
                       <TouchableOpacity
@@ -989,14 +1208,32 @@ export default function ChatScreen() {
                       </TouchableOpacity>
                     );
                   }
+                  if (isImageAttachment && !imageUrl) {
+                    return (
+                      <TouchableOpacity
+                        key={key}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.attachmentImage,
+                          {
+                            backgroundColor: '#E5E7EB',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                          },
+                        ]}
+                        onPress={() => void openMessageAttachment(attachment)}
+                      >
+                        <Text style={styles.fileAttachmentMeta}>
+                          Ảnh • Chạm để mở / tải
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }
                   return (
                     <TouchableOpacity
                       key={key}
                       style={styles.fileAttachmentCard}
-                      onPress={() => {
-                        const fileUrl = attachment?.url || attachment?.downloadUrl;
-                        if (fileUrl) Linking.openURL(fileUrl).catch(() => {});
-                      }}
+                      onPress={() => void openMessageAttachment(attachment)}
                     >
                       <Text style={styles.fileAttachmentName} numberOfLines={1}>
                         📄 {attachment?.originalName || 'Tệp đính kèm'}
@@ -1036,17 +1273,45 @@ export default function ChatScreen() {
               ))}
             </View>
           )}
-          {timeStr ? (
-            <Text style={[styles.timeText, isMine && styles.timeTextMine]}>
-              {timeStr}
-              {isMine && !isRecalled && (
-                item.is_optimistic
-                  ? ' ○'
-                  : item.read_by && item.read_by.length > 0
-                    ? ' ✓✓'
-                    : ' ✓'
-              )}
-            </Text>
+          {(showReply || timeStr) ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginTop: 6,
+                paddingHorizontal: 2,
+              }}
+            >
+              {showReply ? (
+                <TouchableOpacity
+                  style={styles.replyInlineBtn}
+                  onPress={() => handleStartReply(item)}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Trả lời tin nhắn"
+                >
+                  <Ionicons
+                    name="arrow-undo-outline"
+                    size={15}
+                    color={replyAccentColor}
+                  />
+                  <Text style={styles.replyInlineText}>Trả lời</Text>
+                </TouchableOpacity>
+              ) : null}
+              <View style={{ flex: 1, minWidth: 4 }} />
+              {timeStr ? (
+                <Text style={[styles.timeText, isMine && styles.timeTextMine, styles.messageFooterTime]}>
+                  {timeStr}
+                  {isMine && !isRecalled && (
+                    item.is_optimistic
+                      ? ' ○'
+                      : item.read_by && item.read_by.length > 0
+                        ? ' ✓✓'
+                        : ' ✓'
+                  )}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
         </TouchableOpacity>
         </View>
@@ -1100,7 +1365,11 @@ export default function ChatScreen() {
             ref={flatListRef}
             data={uniqueMessages}
             keyExtractor={(item, index) => {
-              const base = item?.id?.toString() || item?.client_message_id || '';
+              const base =
+                item?.clientMessageId ||
+                item?.client_message_id ||
+                item?.id?.toString() ||
+                '';
               return base ? `${base}` : `msg-fallback-${index}`;
             }}
             renderItem={renderMessage}
@@ -1123,11 +1392,14 @@ export default function ChatScreen() {
             <View style={styles.replyPreview}>
               <View style={styles.replyPreviewBar} />
               <View style={styles.replyPreviewContent}>
-                <Text style={styles.replyPreviewSender}>
-                  {getSenderName(replyTarget)}
+                <Text style={styles.replyPreviewText} numberOfLines={1}>
+                  <Text style={styles.replyPreviewTitle}>Đang trả lời </Text>
+                  <Text style={styles.replyPreviewSender}>
+                    {getSenderName(replyTarget)}
+                  </Text>
                 </Text>
                 <Text style={styles.replyPreviewText} numberOfLines={1}>
-                  {(replyTarget.body || '').slice(0, 60) || 'Ảnh / File'}
+                  {(replyTarget.body || '').slice(0, 80) || 'Ảnh / File'}
                 </Text>
               </View>
               <TouchableOpacity
@@ -1140,23 +1412,35 @@ export default function ChatScreen() {
           )}
 
           {/* @Mention suggestions */}
-          {mentionQuery !== null && mentionSuggestions.length > 0 && (
+          {mentionRows.length > 0 && (
             <View style={styles.mentionSuggestions}>
-              {mentionSuggestions.slice(0, 5).map((u: any) => (
-                <TouchableOpacity
-                  key={u.id}
-                  style={styles.mentionItem}
-                  onPress={() => {
-                    const beforeAt = inputText.slice(0, inputText.lastIndexOf('@'));
-                    setInputText(`${beforeAt}@${u.username} `);
-                    setMentionQuery(null);
-                    setMentionSuggestions([]);
-                  }}
-                >
-                  <Text style={styles.mentionName}>{u.fullName || u.full_name || u.username}</Text>
-                  <Text style={styles.mentionUsername}>@{u.username}</Text>
-                </TouchableOpacity>
-              ))}
+              {mentionRows.map((row, idx) =>
+                row.type === 'all' ? (
+                  <TouchableOpacity
+                    key="mention-all"
+                    style={styles.mentionItem}
+                    onPress={() => applyMentionSelection(row)}
+                  >
+                    <Text style={styles.mentionName}>Tất cả</Text>
+                    <Text style={styles.mentionUsername}>
+                      @{EVERYONE_MENTION_USERNAME}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    key={row.user.id ?? `u-${idx}`}
+                    style={styles.mentionItem}
+                    onPress={() => applyMentionSelection(row)}
+                  >
+                    <Text style={styles.mentionName}>
+                      {row.user.fullName ||
+                        (row.user as { full_name?: string }).full_name ||
+                        row.user.username}
+                    </Text>
+                    <Text style={styles.mentionUsername}>@{row.user.username}</Text>
+                  </TouchableOpacity>
+                ),
+              )}
             </View>
           )}
 
@@ -1192,38 +1476,22 @@ export default function ChatScreen() {
               )}
             </TouchableOpacity>
             <TextInput
+              ref={composerInputRef}
               style={styles.inputField}
               placeholder='Nhập tin nhắn...'
               placeholderTextColor='#9CA3AF'
               value={inputText}
               onChangeText={(text) => {
+                inputTextRef.current = text;
                 setInputText(text);
-                // Detect @mention
-                const atMatch = text.match(/@(\w*)$/);
-                if (atMatch) {
-                  const query = atMatch[1];
-                  setMentionQuery(query);
-                  if (query.length >= 1) {
-                    httpClient.get(`/conversations/${conversationId}/participants`)
-                      .then(({ data }) => {
-                        const participants = data.participants || data || [];
-                        const filtered = participants.filter((p: any) => {
-                          const name = (p.fullName || p.full_name || p.username || '').toLowerCase();
-                          return name.includes(query.toLowerCase());
-                        });
-                        setMentionSuggestions(filtered);
-                      })
-                      .catch(() => setMentionSuggestions([]));
-                  } else {
-                    // Show all participants when just typing @
-                    httpClient.get(`/conversations/${conversationId}/participants`)
-                      .then(({ data }) => setMentionSuggestions(data.participants || data || []))
-                      .catch(() => setMentionSuggestions([]));
-                  }
-                } else {
-                  setMentionQuery(null);
-                  setMentionSuggestions([]);
-                }
+                /** While typing, selection events often lag behind — use end-of-text so @Nguy… gets a non-empty query */
+                mentionCaretRef.current = text.length;
+                refreshMentionMenu(text, text.length);
+              }}
+              onSelectionChange={(e) => {
+                const end = e.nativeEvent.selection.end;
+                mentionCaretRef.current = end;
+                refreshMentionMenu(inputTextRef.current, end);
               }}
               multiline
             />
@@ -1727,7 +1995,7 @@ export default function ChatScreen() {
               renderItem={({ item: file }) => (
                 <TouchableOpacity
                   style={styles.menuItem}
-                  onPress={() => Linking.openURL(file.url || file.path)}
+                  onPress={() => void openMessageAttachment(file)}
                 >
                   <Text style={styles.menuItemIcon}>📄</Text>
                   <View style={{ flex: 1 }}>
