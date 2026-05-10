@@ -46,6 +46,7 @@ import {
 } from './chatHelpers';
 import { getChatStyles } from './chatStyles';
 import { useAppTheme } from '@/contexts/ThemeContext';
+import { CreateTaskModal } from '@/components/task/CreateTaskModal';
 
 // Notification sound player
 let _notifSound: Audio.Sound | null = null;
@@ -101,6 +102,7 @@ export default function ChatScreen() {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [replyTarget, setReplyTarget] = useState<any>(null);
   const [menuTarget, setMenuTarget] = useState<any>(null);
+  const [createTaskTarget, setCreateTaskTarget] = useState<{ id: number; body: string } | null>(null);
   const [forwardSource, setForwardSource] = useState<any>(null);
   const [forwardConversations, setForwardConversations] = useState<any[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -1405,6 +1407,22 @@ export default function ChatScreen() {
               ) : null;
             })()}
 
+            {/* Create Task */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                const msgId = Number(menuTarget?.id);
+                const msgBody = String(menuTarget?.body || '').trim();
+                if (msgId > 0) {
+                  setCreateTaskTarget({ id: msgId, body: msgBody });
+                }
+                setMenuTarget(null);
+              }}
+            >
+              <Text style={styles.menuItemIcon}>📋</Text>
+              <Text style={styles.menuItemText}>Tạo công việc</Text>
+            </TouchableOpacity>
+
             <View style={styles.menuDivider} />
 
             <TouchableOpacity
@@ -1417,6 +1435,14 @@ export default function ChatScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Create Task Modal */}
+      <CreateTaskModal
+        visible={!!createTaskTarget}
+        sourceMessage={createTaskTarget}
+        roomMembers={groupMembers.map((m: any) => ({ id: m.id, full_name: m.full_name || m.username }))}
+        onClose={() => setCreateTaskTarget(null)}
+      />
 
       {/* Forward conversation picker */}
       <Modal
