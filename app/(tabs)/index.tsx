@@ -25,7 +25,16 @@ import {
   getRealtimeConnectionState,
   subscribeUserInboxMessages,
   closeReverbClient,
+  type ReverbMessageEventPayload,
 } from '@/services/realtime/reverbClient';
+import {
+  consumePendingChatNotificationNav,
+  processLaunchNotificationResponse,
+  registerForPushNotifications,
+  presentLocalChatMessageNotification,
+  unregisterPushTokenFromBackend,
+} from '@/services/notifications/pushNotifications';
+import { AiAssistantHomeCard } from '@/widgets/chat/AiAssistantHomeCard';
 
 // Color palette for avatars
 const AVATAR_COLORS = [
@@ -94,6 +103,16 @@ export default function HomeScreen() {
   );
   const fetchChatsRef = useRef<() => void>(() => undefined);
   const lastPollAtRef = useRef(0);
+  const currentUserIdRef = useRef<number | null>(null);
+  const chatsRef = useRef<any[]>([]);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
+
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
 
   useEffect(() => {
     const initApp = async () => {
@@ -104,15 +123,27 @@ export default function HomeScreen() {
         try {
           const me = await authApi.me();
           setCurrentUserId(Number(me.user?.id) || null);
+          await fetchChats();
+          await registerForPushNotifications();
+          await consumePendingChatNotificationNav(router);
+          await processLaunchNotificationResponse(router, {
+            isAuthenticated: true,
+          });
         } catch {
           setCurrentUserId(null);
+          await processLaunchNotificationResponse(router, {
+            isAuthenticated: false,
+          });
         }
-        fetchChats();
+      } else {
+        await processLaunchNotificationResponse(router, {
+          isAuthenticated: false,
+        });
       }
       setIsInitializing(false);
     };
-    initApp();
-  }, []);
+    void initApp();
+  }, [router]);
 
   const fetchChats = async () => {
     setIsFetchingChats(true);
@@ -166,7 +197,9 @@ export default function HomeScreen() {
       );
       setIsAuthenticated(true);
       setCurrentUserId(Number(response.user?.id) || null);
-      fetchChats();
+      await fetchChats();
+      await registerForPushNotifications();
+      await consumePendingChatNotificationNav(router);
     } catch (error: any) {
       console.error('login error', {
         code: error?.code,
@@ -183,6 +216,7 @@ export default function HomeScreen() {
   };
 
   const handleLogout = async () => {
+    await unregisterPushTokenFromBackend();
     // Close WebSocket before clearing auth to avoid reconnect attempts
     closeReverbClient();
     // Revoke session on server (best-effort: don't block UI if server unreachable)
@@ -211,9 +245,67 @@ export default function HomeScreen() {
 
     realtimeRefreshTimerRef.current = setTimeout(() => {
       realtimeRefreshTimerRef.current = null;
-      fetchChats();
+      fetchChatsRef.current();
     }, 250);
   }, []);
+
+  const handleInboxChatNotification = useCallback(
+    (payload: ReverbMessageEventPayload) => {
+      scheduleRealtimeConversationRefresh();
+
+      const uid = currentUserIdRef.current;
+      const msg = payload.message;
+      const sid = Number(msg.sender?.id);
+      if (!uid || !sid || sid === uid) {
+        return;
+      }
+
+      const cid = Number(msg.conversationId);
+      if (!Number.isFinite(cid) || cid <= 0) {
+        return;
+      }
+
+      const conv = chatsRef.current.find((c: any) => Number(c.id) === cid);
+      const conversationType = conv?.type ?? 'direct';
+      const senderName =
+        msg.sender?.fullName || msg.sender?.username || 'Người gửi';
+
+      const conversationName =
+        typeof conv?.name === 'string' && conv.name.trim()
+          ? conv.name.trim()
+          : conversationType === 'direct'
+            ? senderName
+            : 'Nhóm';
+
+      const mentions = msg.mentions ?? [];
+      const isMentioned = mentions.some((m) => Number(m.id) === Number(uid));
+      const isGroup = conversationType === 'group';
+      const muted = isGroup && !isMentioned;
+
+      const rawBody = typeof msg.body === 'string' ? msg.body.trim() : '';
+      const bodyText =
+        rawBody.length > 0
+          ? rawBody.slice(0, 120)
+          : (msg.attachments?.length ?? 0) > 0
+            ? 'Hình ảnh'
+            : 'Tin nhắn mới';
+
+      const title = muted ? conversationName : senderName;
+      const body = muted ? `${senderName}: ${bodyText}` : bodyText;
+
+      void presentLocalChatMessageNotification({
+        conversationId: cid,
+        conversationName,
+        conversationType,
+        title,
+        body,
+        senderId: sid,
+        messageId: Number(msg.id) || 0,
+        muted,
+      });
+    },
+    [scheduleRealtimeConversationRefresh],
+  );
 
   useEffect(() => {
     return () => {
@@ -231,11 +323,17 @@ export default function HomeScreen() {
 
     return subscribeUserInboxMessages(
       currentUserId,
+      handleInboxChatNotification,
       () => scheduleRealtimeConversationRefresh(),
       () => scheduleRealtimeConversationRefresh(),
       () => scheduleRealtimeConversationRefresh(),
     );
-  }, [isAuthenticated, currentUserId, scheduleRealtimeConversationRefresh]);
+  }, [
+    isAuthenticated,
+    currentUserId,
+    scheduleRealtimeConversationRefresh,
+    handleInboxChatNotification,
+  ]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -455,6 +553,9 @@ export default function HomeScreen() {
               onRefresh={handleRefresh}
               colors={['#1E3A8A']}
             />
+          }
+          ListHeaderComponent={
+            !hasSearch ? <AiAssistantHomeCard /> : undefined
           }
           renderItem={({ item: row, index }) => {
             if (row.rowType === 'user') {

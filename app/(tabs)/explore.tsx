@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { httpClient } from '@/services/api/httpClient';
 import { authStorage } from '@/features/auth/authStorage';
 import { closeReverbClient } from '@/services/realtime/reverbClient';
+import { unregisterPushTokenFromBackend } from '@/services/notifications/pushNotifications';
 import { useRouter } from 'expo-router';
 import { useAppTheme } from '@/contexts/ThemeContext';
 
@@ -40,6 +41,7 @@ export default function SettingsScreen() {
         style: 'destructive',
         onPress: async () => {
           closeReverbClient();
+          await unregisterPushTokenFromBackend();
           try {
             await httpClient.post('/auth/logout');
           } catch {}

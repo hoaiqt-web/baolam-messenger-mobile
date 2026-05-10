@@ -1,19 +1,16 @@
-/**
- * chatLayoutHelpers.ts
- * Shared helpers for normalizing raw API chat data in the mobile chat layout.
- * Re-created to fix missing module error (TS2307) in useChatRoomController.ts.
- */
-import type { ChatAttachment } from "@/Models/chat/types";
+import type { ChatAttachment } from '@/Models/chat/types';
 
 /**
  * Normalize raw attachment array from API response (replyTo / forwardedFrom).
  * The API may return null, undefined, or a partially-typed array — this ensures
- * a safe, strongly-typed ChatAttachment[] is always returned.
+ * a safe, strongly-typed array is returned.
  */
 export function normalizeReplyAttachmentsFromApi(
-  raw: unknown
-): ChatAttachment[] {
-  if (!Array.isArray(raw)) return [];
+  raw: unknown,
+): ChatAttachment[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return undefined;
+  }
 
   return raw
     .filter(

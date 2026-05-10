@@ -14,8 +14,8 @@ LogBox.ignoreLogs([
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
-  registerForPushNotifications,
   addNotificationListeners,
+  navigateToChatFromNotificationData,
 } from '@/services/notifications/pushNotifications';
 
 import { AppThemeProvider, useAppTheme } from '@/contexts/ThemeContext';
@@ -28,36 +28,28 @@ function RootLayoutInner() {
   const { isDark } = useAppTheme();
   const router = useRouter();
 
-  // Register push notifications on app start
   useEffect(() => {
-    registerForPushNotifications();
-
     const cleanup = addNotificationListeners(
-      undefined, // onReceive: handled by notification handler
+      undefined,
       (response) => {
-        // When user taps a notification, navigate to the chat
-        const data = response.notification.request.content.data;
+        const data = response.notification.request.content.data as
+          | Record<string, unknown>
+          | undefined;
         if (data?.conversationId) {
-          router.push({
-            pathname: '/chat/[id]',
-            params: {
-              id: String(data.conversationId),
-              name: String(data.conversationName || 'Tin nhắn'),
-              type: String(data.conversationType || 'direct'),
-            },
-          });
+          navigateToChatFromNotificationData(router, data);
         }
       },
     );
 
     return cleanup;
-  }, []);
+  }, [router]);
 
   return (
     <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal"  options={{ presentation: 'modal', title: 'Modal' }} />
+        <Stack.Screen name="ai-assistant" options={{ headerShown: false }} />
+        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         <Stack.Screen name="tasks/[id]" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style={isDark ? 'light' : 'dark'} />
