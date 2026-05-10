@@ -138,7 +138,6 @@ export const getChatStyles = (isDark: boolean) => {
     },
     replyInlineText: { fontSize: 12, color: primaryBrand, fontWeight: '600' },
     messageFooterTime: { flexShrink: 0 },
-
     menuOverlay: { flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
     menuSheet: { backgroundColor: bgCard, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 16, paddingBottom: 32, paddingHorizontal: 16 },
     menuReactionsRow: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 8, paddingHorizontal: 12 },

@@ -1,22 +1,30 @@
 import type { ChatAttachment } from '@/Models/chat/types';
 
+/**
+ * Normalize raw attachment array from API response (replyTo / forwardedFrom).
+ * The API may return null, undefined, or a partially-typed array — this ensures
+ * a safe, strongly-typed array is returned.
+ */
 export function normalizeReplyAttachmentsFromApi(
   raw: unknown,
 ): ChatAttachment[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) {
     return undefined;
   }
-  return raw.map((item) => {
-    const a = item as Record<string, unknown>;
-    return {
-      id: Number(a.id),
-      objectKey: String(a.objectKey ?? ''),
-      mimeType: String(a.mimeType ?? ''),
-      size: Number(a.size ?? 0),
-      originalName: String(a.originalName ?? ''),
-      width: a.width == null ? null : Number(a.width),
-      height: a.height == null ? null : Number(a.height),
-      url: typeof a.url === 'string' ? a.url : null,
-    };
-  });
+
+  return raw
+    .filter(
+      (item): item is Record<string, unknown> =>
+        item !== null && typeof item === "object"
+    )
+    .map((item) => ({
+      id:           Number(item["id"] ?? 0),
+      objectKey:    String(item["objectKey"] ?? item["object_key"] ?? ""),
+      mimeType:     String(item["mimeType"] ?? item["mime_type"] ?? ""),
+      size:         Number(item["size"] ?? item["file_size"] ?? 0),
+      originalName: String(item["originalName"] ?? item["original_name"] ?? ""),
+      width:        item["width"] != null ? Number(item["width"]) : null,
+      height:       item["height"] != null ? Number(item["height"]) : null,
+      url:          item["url"] != null ? String(item["url"]) : null,
+    }));
 }
