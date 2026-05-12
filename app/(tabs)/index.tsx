@@ -290,8 +290,8 @@ export default function HomeScreen() {
             ? 'Hình ảnh'
             : 'Tin nhắn mới';
 
-      const title = muted ? conversationName : senderName;
-      const body = muted ? `${senderName}: ${bodyText}` : bodyText;
+      const title = isGroup ? conversationName : senderName;
+      const body = isGroup ? `${senderName}: ${bodyText}` : bodyText;
 
       void presentLocalChatMessageNotification({
         conversationId: cid,
@@ -743,6 +743,16 @@ export default function HomeScreen() {
               >
                 <Text style={styles.sheetItemIcon}>👥</Text>
                 <Text style={styles.sheetItemText}>Tạo nhóm chat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.sheetItem}
+                onPress={() => {
+                  setShowNewChatSheet(false);
+                  router.push('/my-cloud' as import('expo-router').Href);
+                }}
+              >
+                <Text style={styles.sheetItemIcon}>☁️</Text>
+                <Text style={styles.sheetItemText}>Tài liệu của tôi (Cloud)</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.sheetItem, { borderBottomWidth: 0 }]}

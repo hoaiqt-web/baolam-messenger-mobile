@@ -7,9 +7,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useMyTasks } from "@/hooks/useMyTasks";
 import { TaskItem } from "@/components/task/TaskItem";
@@ -113,7 +113,7 @@ export default function MyTasksScreen() {
   // ── Main render ─────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       {/* Header */}

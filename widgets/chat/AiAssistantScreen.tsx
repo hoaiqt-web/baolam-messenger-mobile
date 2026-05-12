@@ -89,6 +89,27 @@ function timeAgoShort(dateString: string | undefined | null): string {
   return date.toLocaleDateString('vi-VN', { timeZone: VN_TZ });
 }
 
+/** Cùng rule với web TaskChecklistWidget: PENDING → DONE → REJECTED, rồi mới → cũ theo tin/created_at. */
+function sortAiAssistantTasks(tasks: ConversationTask[]): ConversationTask[] {
+  const out = [...tasks];
+  out.sort((a, b) => {
+    const priority = { PENDING: 0, DONE: 1, REJECTED: 2 } as const;
+    const pa =
+      priority[a.status as keyof typeof priority] ?? 99;
+    const pb =
+      priority[b.status as keyof typeof priority] ?? 99;
+    if (a.status !== b.status) return pa - pb;
+    const tA = toUtcDate(
+      a.source_message?.sent_at || a.created_at,
+    ).getTime();
+    const tB = toUtcDate(
+      b.source_message?.sent_at || b.created_at,
+    ).getTime();
+    return tB - tA;
+  });
+  return out;
+}
+
 type AiTaskRowProps = {
   task: ConversationTask;
   isDark: boolean;
@@ -383,10 +404,10 @@ export function AiAssistantScreen({
                 merged.push(t);
               }
             }
-            return merged;
+            return sortAiAssistantTasks(merged);
           });
         } else {
-          setTasks(next);
+          setTasks(sortAiAssistantTasks(next));
         }
       } catch (e) {
         console.warn('[AiAssistant] load failed', e);

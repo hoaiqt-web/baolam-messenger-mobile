@@ -22,9 +22,9 @@ import {
   Modal,
   Dimensions,
   ScrollView,
-  InteractionManager,
+  StyleSheet,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { httpClient } from '@/services/api/httpClient';
 import * as ImagePicker from 'expo-image-picker';
@@ -65,11 +65,18 @@ import {
 import {
   buildImageGalleryEntries,
   findGalleryStartIndex,
+  type ImageGalleryEntry,
 } from '@/features/chat/chatImageGallery';
+import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
+import { ChatImageEditorModal } from '@/components/chat/ChatImageEditorModal';
 import { formatConversationListTitle } from '@/features/chat/conversationDisplayUtils';
 import { TaskChecklistModal } from '@/widgets/chat/TaskChecklistModal';
 import { ManualCreateTaskModal } from '@/widgets/chat/ManualCreateTaskModal';
 import { chatApi } from '@/services/api/chatApi';
+import {
+  useChatPresentationExtras,
+  useChatRouteParamsOverride,
+} from '@/features/chat/ChatEmbedContext';
 
 // Notification sound player
 let _notifSound: Audio.Sound | null = null;
@@ -167,7 +174,20 @@ export default function ChatScreen() {
   const REALTIME_IDLE_THRESHOLD_MS = 15_000;
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
   const POLL_INTERVAL_DEGRADED_MS = 5_000;
-  const { id, name, type, jumpMessageId } = useLocalSearchParams();
+  const searchParams = useLocalSearchParams<{
+    id?: string;
+    name?: string;
+    type?: string;
+    jumpMessageId?: string;
+  }>();
+  const routeOverride = useChatRouteParamsOverride();
+  const presentationExtras = useChatPresentationExtras();
+  const id = String(routeOverride?.id ?? searchParams.id ?? '');
+  const name = String(routeOverride?.name ?? searchParams.name ?? '');
+  const type = String(routeOverride?.type ?? searchParams.type ?? '');
+  const jumpMessageId = String(
+    routeOverride?.jumpMessageId ?? searchParams.jumpMessageId ?? '',
+  );
   const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
@@ -187,12 +207,23 @@ export default function ChatScreen() {
 
   const chatTitle = (name as string) || 'Tin nhắn';
   const isGroup = type === 'group';
-  const [imageViewer, setImageViewer] = useState<{
+  type ImageViewerState = {
     urls: string[];
+    entries: ImageGalleryEntry[];
     index: number;
-  } | null>(null);
+  };
+
+  const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [galleryVisibleIndex, setGalleryVisibleIndex] = useState(0);
+  const [viewerRotationDeg, setViewerRotationDeg] = useState(0);
+  const [imagePagerScrollEnabled, setImagePagerScrollEnabled] = useState(true);
+  const [imageEditorTarget, setImageEditorTarget] = useState<{ attachmentId: number } | null>(
+    null,
+  );
   const imagePagerRef = useRef<FlatList<string>>(null);
+  const zoomableRefs = useRef<Record<number, InstanceType<typeof ReactNativeZoomableView> | null>>(
+    {},
+  );
   const [replyTarget, setReplyTarget] = useState<any>(null);
   const [menuTarget, setMenuTarget] = useState<any>(null);
   const [createTaskTarget, setCreateTaskTarget] = useState<{ id: number; body: string } | null>(null);
@@ -206,6 +237,8 @@ export default function ChatScreen() {
   const [chatParticipants, setChatParticipants] = useState<MentionParticipant[]>([]);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
+  const insets = useSafeAreaInsets();
+  const isCloudTabEmbed = !!presentationExtras.cloudTabDocumentsNav;
 
   // Group management state
   const [showGroupSettings, setShowGroupSettings] = useState(false);
@@ -232,6 +265,9 @@ export default function ChatScreen() {
 
   // Deduplicate at render time to guarantee unique keys for FlatList
   const uniqueMessages = useMemo(() => deduplicateMessages(messages), [messages]);
+  /** Used for scroll-to-index edge detection (newest-first array → last = oldest loaded) */
+  const messagesCountRef = useRef(0);
+  messagesCountRef.current = uniqueMessages.length;
 
   const fetchMessages = useCallback(
     async (mode: 'reset' | 'poll' = 'reset') => {
@@ -317,7 +353,17 @@ export default function ChatScreen() {
       const urls = imageGalleryEntries.map((e) => e.url);
       if (urls.length === 0) {
         setGalleryVisibleIndex(0);
-        setImageViewer({ urls: [resolvedUrl], index: 0 });
+        setImageViewer({
+          urls: [resolvedUrl],
+          entries: [
+            {
+              url: resolvedUrl,
+              messageId: String(messageItem?.id ?? ''),
+              attachmentId: String(attachment?.id ?? ''),
+            },
+          ],
+          index: 0,
+        });
         return;
       }
       const index = findGalleryStartIndex(
@@ -328,7 +374,11 @@ export default function ChatScreen() {
       );
       const safeIndex = Math.min(index, Math.max(0, urls.length - 1));
       setGalleryVisibleIndex(safeIndex);
-      setImageViewer({ urls, index: safeIndex });
+      setImageViewer({
+        urls,
+        entries: imageGalleryEntries,
+        index: safeIndex,
+      });
     },
     [imageGalleryEntries],
   );
@@ -352,7 +402,9 @@ export default function ChatScreen() {
   );
 
   useEffect(() => {
-    if (!imageViewer?.urls?.length) return;
+    if (!imageViewer?.urls?.length) {
+      return;
+    }
     const idx = Math.min(imageViewer.index, imageViewer.urls.length - 1);
     setGalleryVisibleIndex(idx);
     const t = setTimeout(() => {
@@ -367,6 +419,55 @@ export default function ChatScreen() {
     }, 80);
     return () => clearTimeout(t);
   }, [imageViewer]);
+
+  useEffect(() => {
+    if (!imageViewer) {
+      return;
+    }
+    setViewerRotationDeg(0);
+    setImagePagerScrollEnabled(true);
+    const t = setTimeout(() => {
+      Object.values(zoomableRefs.current).forEach((z) => {
+        z?.zoomTo(1);
+      });
+    }, 60);
+    return () => clearTimeout(t);
+  }, [galleryVisibleIndex, imageViewer]);
+
+  const imageViewerZoomIn = useCallback(() => {
+    const z = zoomableRefs.current[galleryVisibleIndex];
+    z?.zoomBy(0.5);
+  }, [galleryVisibleIndex]);
+
+  const imageViewerZoomOut = useCallback(() => {
+    const z = zoomableRefs.current[galleryVisibleIndex];
+    z?.zoomBy(-0.5);
+  }, [galleryVisibleIndex]);
+
+  const imageViewerRotateLeft = useCallback(() => {
+    setViewerRotationDeg((prev) => (prev - 90) % 360);
+  }, []);
+
+  const openImageEditorFromViewer = useCallback(() => {
+    if (!imageViewer) return;
+    const ent = imageViewer.entries[galleryVisibleIndex];
+    const aid = ent ? Number(ent.attachmentId) : NaN;
+    if (!Number.isFinite(aid) || aid <= 0) {
+      Alert.alert(
+        'Không thể chỉnh sửa',
+        'Ảnh này không có mã đính kèm hợp lệ (ví dụ ảnh chưa đồng bộ).',
+      );
+      return;
+    }
+    setImageViewer(null);
+    setImageEditorTarget({ attachmentId: aid });
+  }, [galleryVisibleIndex, imageViewer]);
+
+  const imageViewerCanEdit = useMemo(() => {
+    if (!imageViewer) return false;
+    const id = Number(imageViewer.entries[galleryVisibleIndex]?.attachmentId);
+    return Number.isFinite(id) && id > 0;
+  }, [imageViewer, galleryVisibleIndex]);
 
   const refreshMentionMenu = useCallback(
     (text: string, caret: number) => {
@@ -825,22 +926,114 @@ export default function ChatScreen() {
         return;
       }
       scrollToIndexFailRetriesRef.current += 1;
-      if (scrollToIndexFailRetriesRef.current > 10) {
+      if (scrollToIndexFailRetriesRef.current > 32) {
         scrollToIndexFailRetriesRef.current = 0;
         return;
       }
-      const delay = Math.min(500, 64 * scrollToIndexFailRetriesRef.current);
+      const avg = info.averageItemLength || 88;
+      const len = messagesCountRef.current;
+      const lastIdx = Math.max(0, len - 1);
+      const edge = info.index === lastIdx && lastIdx >= 0;
+      // Move viewport near unmeasured rows so RN can lay out distant items (inverted list)
+      const rough = Math.max(0, avg * info.index - screenHeight * 0.2);
+      try {
+        list.scrollToOffset({ offset: rough, animated: false });
+      } catch {
+        scrollToIndexFailRetriesRef.current = 0;
+        return;
+      }
+      if (edge) {
+        try {
+          list.scrollToEnd({ animated: false });
+        } catch {
+          /* continue */
+        }
+      }
+      const delay = Math.min(380, 36 * scrollToIndexFailRetriesRef.current);
       setTimeout(() => {
         try {
           list.scrollToIndex({
             index: info.index,
-            animated: true,
-            viewPosition: 0.35,
+            animated: false,
+            viewPosition: edge ? 0.06 : 0.3,
           });
         } catch {
           scrollToIndexFailRetriesRef.current = 0;
         }
       }, delay);
+    },
+    [screenHeight],
+  );
+
+  /**
+   * Scroll to a row by index (FlatList inverted, data newest-first).
+   * - Oldest loaded message = last index: scrollToEnd then pin with scrollToIndex (RN often fails for tail index alone).
+   * - Defer setFlashMessageId so extraData does not re-render the whole list during scroll (reduces jank).
+   */
+  const scrollFlatListToMessageIndex = useCallback(
+    (idx: number, opts?: { flashId?: number; skipFlash?: boolean }) => {
+      const list = flatListRef.current;
+      if (!list || idx < 0) return;
+      scrollToIndexFailRetriesRef.current = 0;
+
+      const scheduleFlash = (id: number) => {
+        if (flashClearTimerRef.current) {
+          clearTimeout(flashClearTimerRef.current);
+          flashClearTimerRef.current = null;
+        }
+        setFlashMessageId(id);
+        flashClearTimerRef.current = setTimeout(() => {
+          setFlashMessageId(null);
+          flashClearTimerRef.current = null;
+        }, 2200);
+      };
+
+      const delayedFlash = () => {
+        if (opts?.skipFlash) return;
+        const id = opts?.flashId;
+        if (id == null || !Number.isFinite(id) || id <= 0) return;
+        setTimeout(() => scheduleFlash(id), 96);
+      };
+
+      const lastIdx = Math.max(0, messagesCountRef.current - 1);
+      const edge = lastIdx >= 0 && idx === lastIdx;
+
+      const run = () => {
+        if (edge) {
+          try {
+            list.scrollToEnd({ animated: false });
+          } catch {
+            /* noop */
+          }
+          setTimeout(() => {
+            try {
+              list.scrollToIndex({
+                index: idx,
+                animated: false,
+                viewPosition: 0.06,
+              });
+            } catch {
+              /* onScrollToIndexFailed */
+            }
+            delayedFlash();
+          }, 64);
+          return;
+        }
+
+        const nearEdge = lastIdx >= 0 && idx >= lastIdx - 2;
+        try {
+          list.scrollToIndex({
+            index: idx,
+            animated: false,
+            viewPosition: nearEdge ? 0.12 : 0.3,
+          });
+        } catch {
+          /* onScrollToIndexFailed */
+        }
+        delayedFlash();
+      };
+
+      requestAnimationFrame(() => requestAnimationFrame(run));
     },
     [],
   );
@@ -856,26 +1049,8 @@ export default function ChatScreen() {
       return;
     }
     jumpToMessageIdRef.current = null;
-    scrollToIndexFailRetriesRef.current = 0;
-    let cancelled = false;
-    const task = InteractionManager.runAfterInteractions(() => {
-      if (cancelled) return;
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        flatListRef.current?.scrollToIndex({
-          index: idx,
-          animated: true,
-          viewPosition: 0.32,
-        });
-      });
-    });
-    return () => {
-      cancelled = true;
-      if (typeof task?.cancel === 'function') {
-        task.cancel();
-      }
-    };
-  }, [uniqueMessages]);
+    scrollFlatListToMessageIndex(idx, { skipFlash: true });
+  }, [uniqueMessages, scrollFlatListToMessageIndex]);
 
   const handleSearchMessages = async (query: string) => {
     setMsgSearchQuery(query);
@@ -925,6 +1100,19 @@ export default function ChatScreen() {
     } catch {
       Alert.alert('Lỗi', 'Không thể nhảy đến tin nhắn');
     }
+  };
+
+  /** Tap reply quote → scroll (or load window around) the original message */
+  const scrollToQuotedMessage = async (replyToId: number) => {
+    if (!Number.isFinite(replyToId) || replyToId <= 0) return;
+    const idx = uniqueMessages.findIndex(
+      (m: any) => Number(m.id) === Number(replyToId),
+    );
+    if (idx >= 0) {
+      scrollFlatListToMessageIndex(idx, { flashId: replyToId });
+      return;
+    }
+    await handleScrollToMessage(replyToId);
   };
 
   useEffect(() => {
@@ -1447,15 +1635,26 @@ export default function ChatScreen() {
 
     const messageCore = (
       <>
-          {/* Reply quote */}
+          {/* Reply quote — tap to jump to original message */}
           {replyTo && replySnippet ? (
-            <View style={styles.replyQuote}>
+            <TouchableOpacity
+              style={styles.replyQuote}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Xem tin nhắn gốc"
+              onPress={() => {
+                const qid = Number(replyTo?.id);
+                if (Number.isFinite(qid) && qid > 0) {
+                  void scrollToQuotedMessage(qid);
+                }
+              }}
+            >
               <View style={styles.replyQuoteBar} />
               <View style={styles.replyQuoteContent}>
                 <Text style={styles.replyQuoteSender}>{replySenderName}</Text>
                 <Text style={styles.replyQuoteText} numberOfLines={2}>{replySnippet}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ) : null}
           <View
             style={[
@@ -1699,41 +1898,90 @@ export default function ChatScreen() {
     );
   };
 
+  const renderNavHeaderActions = () => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8, gap: 10 }}>
+      {presentationExtras.cloudTabDocumentsNav ? (
+        <TouchableOpacity
+          onPress={presentationExtras.cloudTabDocumentsNav.onOpenDocuments}
+          accessibilityRole="button"
+          accessibilityLabel="Tài liệu của tôi"
+        >
+          <Ionicons name="folder-open-outline" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+      ) : null}
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E', marginRight: 4 }} />
+        <Text style={{ color: '#93C5FD', fontSize: 11 }}>Online</Text>
+      </View>
+      <TouchableOpacity onPress={() => setShowMsgSearch(true)}>
+        <Ionicons name="search-outline" size={20} color="#FFFFFF" />
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => setShowTaskChecklist(true)}
+        accessibilityLabel="Checklist công việc"
+      >
+        <Ionicons name="checkbox-outline" size={20} color="#FFFFFF" />
+      </TouchableOpacity>
+      <TouchableOpacity onPress={handleAiSummarize}>
+        <Ionicons name="sparkles-outline" size={20} color="#FFFFFF" />
+      </TouchableOpacity>
+      {isGroup && (
+        <TouchableOpacity onPress={handleOpenGroupSettings}>
+          <Ionicons name="settings-outline" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <View style={styles.container}>
+      {isCloudTabEmbed ? (
+        <View style={{ backgroundColor: '#1E3A8A' }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 6,
+              paddingBottom: 10,
+              paddingTop: Math.max(insets.top, 8),
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: 'rgba(255,255,255,0.2)',
+            }}
+          >
+            <View style={{ width: 6 }} />
+            <Text
+              style={{
+                flex: 1,
+                minWidth: 0,
+                textAlign: 'center',
+                color: '#FFFFFF',
+                fontWeight: 'bold',
+                fontSize: 18,
+                marginHorizontal: 4,
+              }}
+              numberOfLines={1}
+            >
+              {chatTitle}
+            </Text>
+            <View style={{ flexShrink: 0 }}>{renderNavHeaderActions()}</View>
+          </View>
+        </View>
+      ) : null}
+      <SafeAreaView style={{ flex: 1 }} edges={isCloudTabEmbed ? [] : ['bottom']}>
       <Stack.Screen
-        options={{
-          title: chatTitle,
-          headerBackTitle: 'Trở lại',
-          headerStyle: { backgroundColor: '#1E3A8A' },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold', fontSize: 18 },
-          headerRight: () => (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8, gap: 10 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E', marginRight: 4 }} />
-                <Text style={{ color: '#93C5FD', fontSize: 11 }}>Online</Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowMsgSearch(true)}>
-                <Ionicons name="search-outline" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setShowTaskChecklist(true)}
-                accessibilityLabel="Checklist công việc"
-              >
-                <Ionicons name="checkbox-outline" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleAiSummarize}>
-                <Ionicons name="sparkles-outline" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-              {isGroup && (
-                <TouchableOpacity onPress={handleOpenGroupSettings}>
-                  <Ionicons name="settings-outline" size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-              )}
-            </View>
-          ),
-        }}
+        options={
+          isCloudTabEmbed
+            ? { headerShown: false }
+            : {
+                title: chatTitle,
+                headerBackTitle: 'Trở lại',
+                headerBackVisible: !presentationExtras.hideHeaderBack,
+                headerStyle: { backgroundColor: '#1E3A8A' },
+                headerTintColor: '#FFFFFF',
+                headerTitleStyle: { fontWeight: 'bold', fontSize: 18 },
+                headerRight: () => renderNavHeaderActions(),
+              }
+        }
       />
 
       {isLoading ? (
@@ -1745,7 +1993,7 @@ export default function ChatScreen() {
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 100}
+          keyboardVerticalOffset={isCloudTabEmbed ? 0 : Platform.OS === 'ios' ? 90 : 100}
         >
           <FlatList
             ref={flatListRef}
@@ -1846,7 +2094,7 @@ export default function ChatScreen() {
             </View>
           )}
 
-          <View style={styles.inputBar}>
+          <View style={[styles.inputBar, isCloudTabEmbed && { paddingBottom: 8 }]}>
             <TouchableOpacity
               style={[
                 styles.attachBtn,
@@ -1949,10 +2197,12 @@ export default function ChatScreen() {
                 data={imageViewer.urls}
                 horizontal
                 pagingEnabled
+                scrollEnabled={imagePagerScrollEnabled}
                 showsHorizontalScrollIndicator={false}
                 style={{ flex: 1 }}
                 keyExtractor={(uri, i) => `${i}-${uri}`}
-                renderItem={({ item: uri }) => (
+                extraData={viewerRotationDeg}
+                renderItem={({ item: uri, index }) => (
                   <View
                     style={{
                       width: screenWidth,
@@ -1961,20 +2211,53 @@ export default function ChatScreen() {
                       alignItems: 'center',
                     }}
                   >
-                    <Image
-                      source={{ uri }}
+                    <ReactNativeZoomableView
+                      ref={(r) => {
+                        zoomableRefs.current[index] = r;
+                      }}
+                      maxZoom={5}
+                      minZoom={1}
+                      zoomStep={0.5}
+                      initialZoom={1}
+                      bindToBorders
+                      contentWidth={screenWidth}
+                      contentHeight={screenHeight * 0.82}
                       style={{
                         width: screenWidth,
                         height: screenHeight * 0.82,
                       }}
-                      resizeMode="contain"
-                    />
+                      onZoomEnd={(_e, _gs, ev) => {
+                        if (index === galleryVisibleIndex) {
+                          setImagePagerScrollEnabled(ev.zoomLevel <= 1.02);
+                        }
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: screenWidth,
+                          height: screenHeight * 0.82,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <View style={{ transform: [{ rotate: `${viewerRotationDeg}deg` }] }}>
+                          <Image
+                            source={{ uri }}
+                            style={{
+                              width: screenWidth,
+                              height: screenHeight * 0.82,
+                            }}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      </View>
+                    </ReactNativeZoomableView>
                   </View>
                 )}
-                getItemLayout={(_, index) => ({
+                getItemLayout={(_, idx) => ({
                   length: screenWidth,
-                  offset: screenWidth * index,
-                  index,
+                  offset: screenWidth * idx,
+                  index: idx,
                 })}
                 viewabilityConfig={galleryViewabilityConfig}
                 onViewableItemsChanged={onGalleryViewableItemsChanged}
@@ -1990,12 +2273,52 @@ export default function ChatScreen() {
             </View>
           ) : null}
           <View style={styles.imagePreviewFooter}>
+            <View style={styles.imagePreviewToolbar}>
+              <TouchableOpacity
+                onPress={imageViewerZoomOut}
+                style={styles.imagePreviewToolBtn}
+                accessibilityLabel="Thu nhỏ"
+              >
+                <Ionicons name="remove-circle-outline" size={26} color="#FFF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={imageViewerZoomIn}
+                style={styles.imagePreviewToolBtn}
+                accessibilityLabel="Phóng to"
+              >
+                <Ionicons name="add-circle-outline" size={26} color="#FFF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={imageViewerRotateLeft}
+                style={styles.imagePreviewToolBtn}
+                accessibilityLabel="Xoay ảnh"
+              >
+                <Ionicons name="arrow-undo-outline" size={24} color="#FFF" />
+              </TouchableOpacity>
+              {imageViewerCanEdit ? (
+                <TouchableOpacity
+                  onPress={openImageEditorFromViewer}
+                  style={styles.imagePreviewToolBtn}
+                  accessibilityLabel="Chỉnh sửa ảnh"
+                >
+                  <Ionicons name="create-outline" size={24} color="#FFF" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
             <Text style={styles.imagePreviewHint}>
-              Vuốt ngang để xem ảnh khác trong cuộc trò chuyện
+              Vuốt ngang giữa các ảnh • Chụm để phóng to • Hai ngón để di chuyển khi đã phóng to
             </Text>
           </View>
         </View>
       </Modal>
+
+      <ChatImageEditorModal
+        visible={!!imageEditorTarget}
+        attachmentId={imageEditorTarget?.attachmentId ?? 0}
+        conversationId={conversationId}
+        onClose={() => setImageEditorTarget(null)}
+        onSendSuccess={(data) => void appendUploadedMessage(setMessages, data)}
+      />
 
       {/* Message actions bottom sheet */}
       <Modal
@@ -2463,7 +2786,17 @@ export default function ChatScreen() {
                   const u = img.url || img.path;
                   if (u) {
                     setGalleryVisibleIndex(0);
-                    setImageViewer({ urls: [u], index: 0 });
+                    setImageViewer({
+                      urls: [u],
+                      entries: [
+                        {
+                          url: u,
+                          messageId: '',
+                          attachmentId: String(img.id ?? ''),
+                        },
+                      ],
+                      index: 0,
+                    });
                   }
                 }}
               >
@@ -2736,5 +3069,6 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </Modal>
     </SafeAreaView>
+    </View>
   );
 }

@@ -59,6 +59,19 @@ export type MyTasksResponse = {
   summary?: MyTasksSummary | null;
 };
 
+/** Personal Cloud file row — mirrors web `PersonalFileItem`. */
+export type PersonalFileItem = {
+  id: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  category: 'image' | 'video' | 'document' | 'other';
+  width: number | null;
+  height: number | null;
+  createdAt: string;
+  url: string;
+};
+
 /** AI / checklist task row from chat API (shape matches web TaskChecklist + AiAssistant). */
 export type ConversationTask = {
   id: number;
@@ -162,6 +175,68 @@ export const chatApi = {
       username,
     });
 
+    return data;
+  },
+
+  async openCloudConversation(): Promise<OpenDirectConversationResponse> {
+    const { data } = await httpClient.post<OpenDirectConversationResponse>("/conversations/cloud");
+    return data;
+  },
+
+  async getMyFiles(params?: { category?: string; cursor?: number }): Promise<{
+    files: PersonalFileItem[];
+    hasMore: boolean;
+    nextCursor: number | null;
+  }> {
+    const { data } = await httpClient.get<{
+      files: PersonalFileItem[];
+      hasMore: boolean;
+      nextCursor: number | null;
+    }>("/my-files", { params });
+    return data;
+  },
+
+  async presignMyFiles(
+    files: Array<{ name: string; mimeType: string; sizeBytes: number }>,
+  ): Promise<{
+    items: Array<{
+      objectKey: string;
+      uploadUrl: string;
+      headers: Record<string, string>;
+      expiresAt: string;
+    }>;
+  }> {
+    const { data } = await httpClient.post<{
+      items: Array<{
+        objectKey: string;
+        uploadUrl: string;
+        headers: Record<string, string>;
+        expiresAt: string;
+      }>;
+    }>("/my-files/presign", { files });
+    return data;
+  },
+
+  async confirmMyFiles(
+    files: Array<{
+      objectKey: string;
+      originalName: string;
+      mimeType: string;
+      sizeBytes: number;
+      width?: number | null;
+      height?: number | null;
+    }>,
+  ): Promise<{ files: PersonalFileItem[] }> {
+    const { data } = await httpClient.post<{ files: PersonalFileItem[] }>("/my-files", { files });
+    return data;
+  },
+
+  async deleteMyFile(fileId: number): Promise<void> {
+    await httpClient.delete(`/my-files/${fileId}`);
+  },
+
+  async getMyFileUrl(fileId: number): Promise<{ url: string }> {
+    const { data } = await httpClient.get<{ url: string }>(`/my-files/${fileId}/url`);
     return data;
   },
   async createGroupConversation(payload: CreateGroupConversationPayload): Promise<CreateGroupConversationResponse> {
