@@ -1401,7 +1401,7 @@ export default function ChatScreen() {
     [chatParticipants, refreshMentionMenu],
   );
 
-  const renderMessage = ({ item, index }: { item: any; index: number }) => {
+  const renderMessage = useCallback(({ item, index }: { item: any; index: number }) => {
     const senderId = item.sender_id || item.senderId || item.sender?.id;
     const isMine = senderId === currentUserId;
     const senderName = getSenderName(item);
@@ -1697,7 +1697,13 @@ export default function ChatScreen() {
         </View>
       </View>
     );
-  };
+  }, [
+    currentUserId,
+    uniqueMessages,
+    flashMessageId,
+    styles,
+    replyAccentColor,
+  ]);
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
