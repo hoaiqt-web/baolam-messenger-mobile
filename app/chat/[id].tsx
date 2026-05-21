@@ -18,12 +18,12 @@ import {
   Alert,
   Animated,
   AppState,
-  Image,
   Modal,
   Dimensions,
   ScrollView,
   InteractionManager,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { httpClient } from '@/services/api/httpClient';
@@ -1967,7 +1967,7 @@ export default function ChatScreen() {
                         width: screenWidth,
                         height: screenHeight * 0.82,
                       }}
-                      resizeMode="contain"
+                      contentFit="contain"
                     />
                   </View>
                 )}
@@ -2470,7 +2470,7 @@ export default function ChatScreen() {
                 <Image
                   source={{ uri: img.url || img.path || img.thumbnailUrl }}
                   style={{ flex: 1, borderRadius: 2 }}
-                  resizeMode="cover"
+                  contentFit="cover"
                 />
               </TouchableOpacity>
             )}

@@ -10,9 +10,9 @@ import {
   Alert,
   RefreshControl,
   AppState,
-  Image,
   Modal,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { authApi } from '@/services/api/authApi';
@@ -508,7 +508,7 @@ export default function HomeScreen() {
         <Image
           source={require('@/assets/images/Banner.png')}
           style={styles.bannerImage}
-          resizeMode="cover"
+          contentFit="cover"
         />
 
         {/* Search + action row */}
