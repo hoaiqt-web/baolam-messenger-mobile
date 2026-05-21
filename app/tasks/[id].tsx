@@ -2,8 +2,9 @@ import React from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert,
-  StyleSheet, SafeAreaView, Image,
+  StyleSheet, SafeAreaView,
 } from "react-native";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTaskDetail } from "@/hooks/useTaskDetail";
 import { useTaskAttachmentUpload } from "@/hooks/useTaskAttachmentUpload";
@@ -72,7 +73,7 @@ function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
               key={att.id}
               source={{ uri: att.public_url ?? undefined }}
               style={styles.imageThumbnail}
-              resizeMode="cover"
+              contentFit="cover"
             />
           ))}
         </View>

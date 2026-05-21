@@ -10,9 +10,9 @@ import {
   Alert,
   RefreshControl,
   AppState,
-  Image,
   Modal,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { authApi } from '@/services/api/authApi';
@@ -493,6 +493,134 @@ export default function HomeScreen() {
     }
   };
 
+  const renderRow = useCallback(({ item: row, index }: { item: any; index: number }) => {
+    if (row.rowType === 'user') {
+      const user = row.item;
+      const userName = user.fullName || user.username || 'Người dùng';
+      const userAvatarColor = getAvatarColor(userName);
+      const hasConversation = Number(user.conversationId || 0) > 0;
+      const showUserHeader =
+        index === 0 || searchRows[index - 1]?.rowType !== 'user';
+
+      return (
+        <>
+          {showUserHeader ? (
+            <Text style={styles.searchSectionHeader}>Người dùng</Text>
+          ) : null}
+          <TouchableOpacity
+            style={styles.chatCard}
+            onPress={() => handleOpenDirectUser(user)}
+            activeOpacity={0.6}
+            disabled={openingUserId === Number(user.id)}
+          >
+            <View
+              style={[
+                styles.chatAvatar,
+                { backgroundColor: userAvatarColor },
+              ]}
+            >
+              <Text style={styles.avatarText}>
+                {userName[0]?.toUpperCase() || '?'}
+              </Text>
+            </View>
+            <View style={styles.chatInfo}>
+              <View style={styles.chatTopRow}>
+                <Text style={styles.chatName} numberOfLines={1}>
+                  {userName}
+                </Text>
+              </View>
+              <Text style={styles.chatPreview} numberOfLines={1}>
+                @{user.username}{' '}
+                {hasConversation
+                  ? '• Đã có hội thoại'
+                  : '• Nhấn để nhắn tin'}
+              </Text>
+            </View>
+            {openingUserId === Number(user.id) ? (
+              <ActivityIndicator size='small' color='#1E3A8A' />
+            ) : null}
+          </TouchableOpacity>
+        </>
+      );
+    }
+
+    const item = row.item;
+    const displayTitle = getDisplayTitle(item);
+    const avatarColor = getAvatarColor(displayTitle);
+    const timeAgo = formatTimeAgo(
+      item.latestMessage?.sentAt ||
+        item.latestMessage?.sent_at ||
+        item.last_message_at,
+    );
+    const isGroup = item.type === 'group';
+    const previewBody = item.latestMessage?.body || 'Chưa có tin nhắn';
+    const senderPrefix =
+      isGroup && item.latestMessage?.sender
+        ? `${item.latestMessage.sender.fullName || item.latestMessage.sender.full_name || item.latestMessage.sender.username}: `
+        : '';
+    const showChatHeader =
+      hasSearch &&
+      (index === 0 || searchRows[index - 1]?.rowType !== 'chat');
+
+    return (
+      <>
+        {showChatHeader ? (
+          <Text style={styles.searchSectionHeader}>Hội thoại</Text>
+        ) : null}
+        <TouchableOpacity
+          style={styles.chatCard}
+          onPress={() =>
+            router.push({
+              pathname: '/chat/[id]',
+              params: { id: item.id, name: displayTitle, type: item.type || 'direct' },
+            })
+          }
+          activeOpacity={0.6}
+        >
+          <View
+            style={[
+              styles.chatAvatar,
+              { backgroundColor: avatarColor },
+            ]}
+          >
+            {item.avatarUrl ? (
+              <Image
+                source={{ uri: item.avatarUrl }}
+                style={styles.chatAvatarImage}
+              />
+            ) : (
+              <Text maxFontSizeMultiplier={1} style={styles.avatarText}>
+                {displayTitle[0].toUpperCase()}
+              </Text>
+            )}
+            {isGroup && (
+              <View style={styles.groupBadge}>
+                <Text style={styles.groupBadgeText}>👥</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.chatInfo}>
+            <View style={styles.chatTopRow}>
+              <Text maxFontSizeMultiplier={1} style={[styles.chatName, item.hasUnread && styles.chatNameUnread]} numberOfLines={1}>
+                {displayTitle}
+              </Text>
+              {timeAgo ? (
+                <Text maxFontSizeMultiplier={1} style={[styles.chatTime, item.hasUnread && styles.chatTimeUnread]}>{timeAgo}</Text>
+              ) : null}
+            </View>
+            <View style={styles.chatBottomRow}>
+              <Text maxFontSizeMultiplier={1} style={[styles.chatPreview, item.hasUnread && styles.chatPreviewUnread]} numberOfLines={1}>
+                {senderPrefix}
+                {previewBody}
+              </Text>
+              {item.hasUnread && <View style={styles.unreadDot} />}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </>
+    );
+  }, [styles, searchRows, hasSearch, openingUserId, router, handleOpenDirectUser]);
+
   if (isInitializing) {
     return (
       <View style={styles.centerContainer}>
@@ -508,7 +636,7 @@ export default function HomeScreen() {
         <Image
           source={require('@/assets/images/Banner.png')}
           style={styles.bannerImage}
-          resizeMode="cover"
+          contentFit="cover"
         />
 
         {/* Search + action row */}
@@ -557,133 +685,7 @@ export default function HomeScreen() {
           ListHeaderComponent={
             !hasSearch ? <AiAssistantHomeCard /> : undefined
           }
-          renderItem={({ item: row, index }) => {
-            if (row.rowType === 'user') {
-              const user = row.item;
-              const userName = user.fullName || user.username || 'Người dùng';
-              const userAvatarColor = getAvatarColor(userName);
-              const hasConversation = Number(user.conversationId || 0) > 0;
-              const showUserHeader =
-                index === 0 || searchRows[index - 1]?.rowType !== 'user';
-
-              return (
-                <>
-                  {showUserHeader ? (
-                    <Text style={styles.searchSectionHeader}>Người dùng</Text>
-                  ) : null}
-                  <TouchableOpacity
-                    style={styles.chatCard}
-                    onPress={() => handleOpenDirectUser(user)}
-                    activeOpacity={0.6}
-                    disabled={openingUserId === Number(user.id)}
-                  >
-                    <View
-                      style={[
-                        styles.chatAvatar,
-                        { backgroundColor: userAvatarColor },
-                      ]}
-                    >
-                      <Text style={styles.avatarText}>
-                        {userName[0]?.toUpperCase() || '?'}
-                      </Text>
-                    </View>
-                    <View style={styles.chatInfo}>
-                      <View style={styles.chatTopRow}>
-                        <Text style={styles.chatName} numberOfLines={1}>
-                          {userName}
-                        </Text>
-                      </View>
-                      <Text style={styles.chatPreview} numberOfLines={1}>
-                        @{user.username}{' '}
-                        {hasConversation
-                          ? '• Đã có hội thoại'
-                          : '• Nhấn để nhắn tin'}
-                      </Text>
-                    </View>
-                    {openingUserId === Number(user.id) ? (
-                      <ActivityIndicator size='small' color='#1E3A8A' />
-                    ) : null}
-                  </TouchableOpacity>
-                </>
-              );
-            }
-
-            const item = row.item;
-            const displayTitle = getDisplayTitle(item);
-            const avatarColor = getAvatarColor(displayTitle);
-            const timeAgo = formatTimeAgo(
-              item.latestMessage?.sentAt ||
-                item.latestMessage?.sent_at ||
-                item.last_message_at,
-            );
-            const isGroup = item.type === 'group';
-            const previewBody = item.latestMessage?.body || 'Chưa có tin nhắn';
-            const senderPrefix =
-              isGroup && item.latestMessage?.sender
-                ? `${item.latestMessage.sender.fullName || item.latestMessage.sender.full_name || item.latestMessage.sender.username}: `
-                : '';
-            const showChatHeader =
-              hasSearch &&
-              (index === 0 || searchRows[index - 1]?.rowType !== 'chat');
-
-            return (
-              <>
-                {showChatHeader ? (
-                  <Text style={styles.searchSectionHeader}>Hội thoại</Text>
-                ) : null}
-                <TouchableOpacity
-                  style={styles.chatCard}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/chat/[id]',
-                      params: { id: item.id, name: displayTitle, type: item.type || 'direct' },
-                    })
-                  }
-                  activeOpacity={0.6}
-                >
-                  <View
-                    style={[
-                      styles.chatAvatar,
-                      { backgroundColor: avatarColor },
-                    ]}
-                  >
-                    {item.avatarUrl ? (
-                      <Image
-                        source={{ uri: item.avatarUrl }}
-                        style={styles.chatAvatarImage}
-                      />
-                    ) : (
-                      <Text maxFontSizeMultiplier={1} style={styles.avatarText}>
-                        {displayTitle[0].toUpperCase()}
-                      </Text>
-                    )}
-                    {isGroup && (
-                      <View style={styles.groupBadge}>
-                        <Text style={styles.groupBadgeText}>👥</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.chatInfo}>
-                    <View style={styles.chatTopRow}>
-                      <Text maxFontSizeMultiplier={1} style={[styles.chatName, item.hasUnread && styles.chatNameUnread]} numberOfLines={1}>
-                        {displayTitle}
-                      </Text>
-                      {timeAgo ? (
-                        <Text maxFontSizeMultiplier={1} style={[styles.chatTime, item.hasUnread && styles.chatTimeUnread]}>{timeAgo}</Text>
-                      ) : null}
-                    </View>
-                    <View style={styles.chatBottomRow}>
-                      <Text maxFontSizeMultiplier={1} style={[styles.chatPreview, item.hasUnread && styles.chatPreviewUnread]} numberOfLines={1}>
-                        {senderPrefix}
-                        {previewBody}
-                      </Text>
-                      {item.hasUnread && <View style={styles.unreadDot} />}
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              </>
-            );
-          }}
+          renderItem={renderRow}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               {isFetchingChats ? (

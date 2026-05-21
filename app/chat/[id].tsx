@@ -18,12 +18,12 @@ import {
   Alert,
   Animated,
   AppState,
-  Image,
   Modal,
   Dimensions,
   ScrollView,
   InteractionManager,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { httpClient } from '@/services/api/httpClient';
@@ -1401,7 +1401,7 @@ export default function ChatScreen() {
     [chatParticipants, refreshMentionMenu],
   );
 
-  const renderMessage = ({ item, index }: { item: any; index: number }) => {
+  const renderMessage = useCallback(({ item, index }: { item: any; index: number }) => {
     const senderId = item.sender_id || item.senderId || item.sender?.id;
     const isMine = senderId === currentUserId;
     const senderName = getSenderName(item);
@@ -1697,7 +1697,13 @@ export default function ChatScreen() {
         </View>
       </View>
     );
-  };
+  }, [
+    currentUserId,
+    uniqueMessages,
+    flashMessageId,
+    styles,
+    replyAccentColor,
+  ]);
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -1967,7 +1973,7 @@ export default function ChatScreen() {
                         width: screenWidth,
                         height: screenHeight * 0.82,
                       }}
-                      resizeMode="contain"
+                      contentFit="contain"
                     />
                   </View>
                 )}
@@ -2470,7 +2476,7 @@ export default function ChatScreen() {
                 <Image
                   source={{ uri: img.url || img.path || img.thumbnailUrl }}
                   style={{ flex: 1, borderRadius: 2 }}
-                  resizeMode="cover"
+                  contentFit="cover"
                 />
               </TouchableOpacity>
             )}
