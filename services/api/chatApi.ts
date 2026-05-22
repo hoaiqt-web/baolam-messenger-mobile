@@ -91,6 +91,8 @@ export type ConversationTask = {
   confirmed_by_ai?: boolean | null;
   completion_confidence?: number | null;
   completion_evidence_message_id?: number | null;
+  /** Backend task domain (ERP vs messenger vs …) — hiển thị nhãn trên Trợ lý AI. */
+  source_module?: string | null;
   source_message?: {
     sent_at?: string;
     created_at?: string;
@@ -118,7 +120,14 @@ export const chatApi = {
   },
   async getMessages(
     conversationId: number,
-    options?: { limit?: number; beforeMessageId?: number | null },
+    options?: {
+      limit?: number;
+      beforeMessageId?: number | null;
+      filterUserId?: number | null;
+      filterDays?: number | null;
+      filterStartDate?: string | null;
+      filterEndDate?: string | null;
+    },
   ): Promise<ConversationMessagesResponse> {
     const { data } = await httpClient.get<ConversationMessagesResponse>(
       `/conversations/${conversationId}/messages`,
@@ -126,10 +135,31 @@ export const chatApi = {
         params: {
           limit: options?.limit,
           beforeMessageId: options?.beforeMessageId ?? undefined,
+          filterUserId: options?.filterUserId ?? undefined,
+          filterDays: options?.filterDays ?? undefined,
+          filterStartDate: options?.filterStartDate ?? undefined,
+          filterEndDate: options?.filterEndDate ?? undefined,
         },
       },
     );
 
+    return data;
+  },
+
+  async getConversationDeleteInfo(conversationId: number): Promise<{
+    conversationId: number;
+    groupName: string;
+    isOwner: boolean;
+    messageCount: number;
+    pendingTaskCount: number;
+  }> {
+    const { data } = await httpClient.get<{
+      conversationId: number;
+      groupName: string;
+      isOwner: boolean;
+      messageCount: number;
+      pendingTaskCount: number;
+    }>(`/conversations/${conversationId}/delete-info`);
     return data;
   },
   async markConversationRead(conversationId: number): Promise<MarkConversationReadResponse> {
@@ -365,6 +395,90 @@ export const chatApi = {
     return data;
   },
 
+  async demoSummarizeConversation(payload: {
+    conversationId: number;
+    range?: string;
+    includeAttachments?: boolean;
+    objective?: string;
+    groupName?: string;
+  }): Promise<{ data?: unknown } & Record<string, unknown>> {
+    const { data } = await httpClient.post("/ai/demo-summarize", payload);
+    return data;
+  },
+
+  async ceoAgentReport(question: string): Promise<string | Record<string, unknown>> {
+    const { data } = await httpClient.post<{ data?: unknown }>(
+      "/ai/ceo-agent/report",
+      { question },
+    );
+    const payload = data?.data ?? data;
+    if (typeof payload === "string") return payload;
+    if (payload && typeof payload === "object") {
+      return payload as Record<string, unknown>;
+    }
+    return String(payload ?? "");
+  },
+
+  async getAttendanceToday(): Promise<{
+    date: string;
+    attendance: Array<{
+      userId: number;
+      fullName: string;
+      employeeId: number;
+      employeeCode: string | null;
+      checkedIn: boolean;
+      checkInTime: string | null;
+      checkOutTime: string | null;
+      status: string;
+      hoursWorked: number | null;
+    }>;
+    error?: string;
+  }> {
+    const { data } = await httpClient.get("/users/attendance-today");
+    return data;
+  },
+
+  async getAttendanceTodaySummary(): Promise<{
+    date: string;
+    badges: Array<{ userId: number; checkedIn: boolean }>;
+    error?: string;
+  }> {
+    const { data } = await httpClient.get("/users/attendance-today/summary");
+    return data;
+  },
+
+  async getAttendanceTodayForUser(userId: number): Promise<{
+    date: string;
+    userId: number;
+    fullName: string;
+    employeeId: number;
+    employeeCode: string | null;
+    checkedIn: boolean;
+    checkInTime: string | null;
+    checkOutTime: string | null;
+    status: string;
+    hoursWorked: number | null;
+    error?: string;
+  }> {
+    const { data } = await httpClient.get(`/users/attendance-today/${userId}`);
+    return data;
+  },
+
+  async setEmployeeId(
+    userId: number,
+    employeeId: number | null,
+  ): Promise<unknown> {
+    const { data } = await httpClient.patch(`/users/${userId}/employee-id`, {
+      employee_id: employeeId,
+    });
+    return data;
+  },
+
+  async getEmployeeMapping(): Promise<unknown> {
+    const { data } = await httpClient.get("/users/employee-mapping");
+    return data;
+  },
+
   async getConversationTasks(conversationId: number): Promise<{ tasks: ConversationTask[] }> {
     const { data } = await httpClient.get<{ tasks: ConversationTask[] }>(
       `/conversations/${conversationId}/tasks`,
@@ -372,9 +486,13 @@ export const chatApi = {
     return data;
   },
 
-  async getMyTasks(filter?: string, cursor?: number | null): Promise<MyTasksResponse> {
+  async getMyTasks(
+    filter?: string,
+    cursor?: number | null,
+    source?: "messenger" | "erp",
+  ): Promise<MyTasksResponse> {
     const { data } = await httpClient.get<MyTasksResponse>("/ai/my-tasks", {
-      params: { filter, cursor },
+      params: { filter, cursor, source },
     });
     return data;
   },

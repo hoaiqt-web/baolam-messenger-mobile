@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   StyleSheet,
   Text,
@@ -12,14 +11,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { File, Paths } from 'expo-file-system';
-import {
-  FlipType,
-  SaveFormat,
-  manipulateAsync,
-  type Action,
-} from 'expo-image-manipulator';
 
 import { httpClient } from '@/services/api/httpClient';
+import {
+  ChatImageSkiaEditor,
+  type ChatImageSkiaEditorHandle,
+} from '@/components/chat/ChatImageSkiaEditor';
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -48,6 +45,7 @@ export function ChatImageEditorModal({
   onSendSuccess,
 }: ChatImageEditorModalProps) {
   const insets = useSafeAreaInsets();
+  const skiaRef = useRef<ChatImageSkiaEditorHandle>(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,32 +88,17 @@ export function ChatImageEditorModal({
     };
   }, [visible, attachmentId]);
 
-  const applyActions = useCallback(async (actions: Action[]) => {
-    if (!workingUri) return;
-    try {
-      setLoading(true);
-      const result = await manipulateAsync(workingUri, actions, {
-        compress: 0.9,
-        format: SaveFormat.JPEG,
-      });
-      setWorkingUri(result.uri);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Không thể áp dụng thao tác.';
-      Alert.alert('Lỗi', msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [workingUri]);
-
   const handleSend = useCallback(async () => {
     if (!workingUri || !Number.isFinite(conversationId) || conversationId <= 0) return;
     setSending(true);
     try {
+      const flatUri = await skiaRef.current?.exportComposite();
+      const uploadUri = flatUri ?? workingUri;
       const formData = new FormData();
       formData.append('file', {
-        uri: workingUri,
-        name: `edited-${Date.now()}.jpg`,
-        type: 'image/jpeg',
+        uri: uploadUri,
+        name: `edited-${Date.now()}.png`,
+        type: 'image/png',
       } as any);
       const { data } = await httpClient.post(
         `/conversations/${conversationId}/attachments/direct`,
@@ -143,10 +126,10 @@ export function ChatImageEditorModal({
       presentationStyle="fullScreen"
       onRequestClose={onClose}
     >
-      <View style={[styles.shell, { paddingTop: insets.top + 8 }]}>
+      <View style={[styles.shell, { paddingTop: insets.top + 4 }]}>
         <View style={styles.topRow}>
           <TouchableOpacity onPress={onClose} style={styles.iconBtn} hitSlop={12}>
-            <Ionicons name="close" size={26} color="#FFF" />
+            <Ionicons name="close" size={22} color="#FFF" />
           </TouchableOpacity>
           <Text style={styles.title}>Chỉnh sửa ảnh</Text>
           <TouchableOpacity
@@ -163,59 +146,19 @@ export function ChatImageEditorModal({
           </TouchableOpacity>
         </View>
 
-        <View style={styles.preview}>
+        <View style={styles.stage}>
           {loading && !workingUri ? (
             <ActivityIndicator color="#00D9FF" size="large" />
           ) : error ? (
             <Text style={styles.errorText}>{error}</Text>
           ) : workingUri ? (
-            <Image source={{ uri: workingUri }} style={styles.previewImg} resizeMode="contain" />
+            <ChatImageSkiaEditor ref={skiaRef} imageUri={workingUri} onWorkingUriChange={setWorkingUri} />
           ) : null}
           {loading && workingUri ? (
             <View style={styles.loadingOverlay}>
               <ActivityIndicator color="#FFF" />
             </View>
           ) : null}
-        </View>
-
-        <View style={[styles.tools, { paddingBottom: insets.bottom + 16 }]}>
-          <Text style={styles.toolsHint}>
-            Xoay, lật — tương thích với chỉnh sửa trên web (ảnh gốc từ máy chủ).
-          </Text>
-          <View style={styles.toolRow}>
-            <TouchableOpacity
-              style={styles.toolBtn}
-              onPress={() => void applyActions([{ rotate: -90 }])}
-              disabled={loading || !workingUri}
-            >
-              <Ionicons name="arrow-undo-outline" size={22} color="#FFF" />
-              <Text style={styles.toolLabel}>Xoay trái</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.toolBtn}
-              onPress={() => void applyActions([{ rotate: 90 }])}
-              disabled={loading || !workingUri}
-            >
-              <Ionicons name="arrow-redo-outline" size={22} color="#FFF" />
-              <Text style={styles.toolLabel}>Xoay phải</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.toolBtn}
-              onPress={() => void applyActions([{ flip: FlipType.Horizontal }])}
-              disabled={loading || !workingUri}
-            >
-              <Ionicons name="swap-horizontal-outline" size={22} color="#FFF" />
-              <Text style={styles.toolLabel}>Lật ngang</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.toolBtn}
-              onPress={() => void applyActions([{ flip: FlipType.Vertical }])}
-              disabled={loading || !workingUri}
-            >
-              <Ionicons name="swap-vertical-outline" size={22} color="#FFF" />
-              <Text style={styles.toolLabel}>Lật dọc</Text>
-            </TouchableOpacity>
-          </View>
         </View>
       </View>
     </Modal>
@@ -231,35 +174,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    paddingHorizontal: 10,
+    marginBottom: 2,
+    flexShrink: 0,
   },
-  title: { color: '#FFF', fontSize: 17, fontWeight: '600' },
+  title: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   sendBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
     backgroundColor: '#00D9FF',
-    minWidth: 72,
+    minWidth: 64,
     alignItems: 'center',
   },
   sendBtnDisabled: { opacity: 0.5 },
-  sendBtnText: { color: '#0B131F', fontWeight: '700', fontSize: 15 },
-  preview: {
-    flex: 1,
-    backgroundColor: '#000',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  previewImg: { width: '100%', height: '100%' },
+  sendBtnText: { color: '#0B131F', fontWeight: '700', fontSize: 14 },
+  stage: { flex: 1, minHeight: 0, position: 'relative' },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.35)',
@@ -267,19 +205,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   errorText: { color: '#FCA5A5', paddingHorizontal: 24, textAlign: 'center' },
-  tools: { paddingHorizontal: 16, paddingTop: 12 },
-  toolsHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 10 },
-  toolRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    columnGap: 8,
-  },
-  toolBtn: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  toolLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 10, marginTop: 4 },
 });

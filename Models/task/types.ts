@@ -29,7 +29,7 @@ export type TaskStatus = "PENDING" | "IN_PROGRESS" | "DONE" | "REJECTED" | "BLOC
 export type TaskPriority = "low" | "medium" | "high";
 export type TaskOriginType = "manual" | "message" | "ai_scan" | "qlnm_bridge";
 export type TaskApprovalStatus = "SUGGESTED" | "CONFIRMED" | "REJECTED";
-export type TaskSourceModule = "messenger" | "qlnm" | "erp_project" | "ai_agent" | "manual";
+export type TaskSourceModule = "messenger" | "qlnm" | "erp_project" | "erp_po_approval" | "ai_agent" | "manual";
 
 export type TaskCommentType =
   | "comment"

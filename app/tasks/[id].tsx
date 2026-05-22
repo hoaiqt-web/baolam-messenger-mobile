@@ -2,8 +2,9 @@ import React from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert,
-  StyleSheet, SafeAreaView, Image,
+  StyleSheet, SafeAreaView,
 } from "react-native";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTaskDetail } from "@/hooks/useTaskDetail";
 import { useTaskAttachmentUpload } from "@/hooks/useTaskAttachmentUpload";
@@ -72,7 +73,8 @@ function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
               key={att.id}
               source={{ uri: att.public_url ?? undefined }}
               style={styles.imageThumbnail}
-              resizeMode="cover"
+              contentFit="cover"
+              cachePolicy="memory-disk"
             />
           ))}
         </View>
@@ -135,6 +137,19 @@ function CommentList({ comments }: { comments: TaskComment[] }) {
 type ActionConfig = { label: string; nextStatus: TaskStatus; color: string } | null;
 
 function getActions(task: TaskDetail): { primary: ActionConfig; secondary: ActionConfig } {
+  // PO Approval specific flow
+  if (task.source_module === "erp_po_approval") {
+    if (task.status === "PENDING") {
+      return {
+        primary:   { label: "✅ Duyệt mua",    nextStatus: "DONE",     color: "#16A34A" },
+        secondary: { label: "❌ Từ chối",     nextStatus: "REJECTED",    color: "#DC2626" },
+      };
+    }
+    if (task.status === "DONE" || task.status === "REJECTED") {
+      return { primary: null, secondary: null }; // Cannot undo PO action from mobile yet
+    }
+  }
+
   switch (task.status) {
     case "PENDING":
       return {

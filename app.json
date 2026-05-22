@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "baolam-messenger-mobile",
+    "name": "Bảo Lâm Messenger",
     "slug": "baolam-messenger-mobile",
     "version": "1.0.2",
     "orientation": "portrait",
@@ -18,7 +18,7 @@
     "android": {
       "package": "com.baolam.messenger",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 7,
+      "versionCode": 12,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -33,6 +33,14 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      [
+        "expo-share-intent",
+        {
+          "disableIOS": true,
+          "androidIntentFilters": ["image/*", "video/*"],
+          "androidMultiIntentFilters": ["image/*", "video/*"]
+        }
+      ],
       "expo-router",
       [
         "expo-image-picker",

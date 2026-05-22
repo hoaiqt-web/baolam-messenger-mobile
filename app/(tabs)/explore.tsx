@@ -16,11 +16,13 @@ import { closeReverbClient } from '@/services/realtime/reverbClient';
 import { unregisterPushTokenFromBackend } from '@/services/notifications/pushNotifications';
 import { useRouter } from 'expo-router';
 import { useAppTheme } from '@/contexts/ThemeContext';
+import { CeoReportModal } from '@/components/chat/CeoReportModal';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showCeoReport, setShowCeoReport] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const { theme, setTheme, isDark } = useAppTheme();
   const styles = getExploreStyles(isDark);
@@ -64,7 +66,11 @@ export default function SettingsScreen() {
 
   const userName = user?.fullName || user?.full_name || user?.username || 'Người dùng';
   const userUsername = user?.username || '';
-  const userEmail = user?.email || '';
+  const userEmail = user?.email ? String(user.email) : '';
+  const userRole = String(user?.role_code || '').toUpperCase();
+  const showCeoEntry =
+    userRole === 'CEO' ||
+    String(user?.username || '').toLowerCase() === 'admin';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -133,6 +139,19 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {showCeoEntry ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Điều hành</Text>
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={() => setShowCeoReport(true)}
+            >
+              <Text style={styles.settingLabel}>📊 Báo cáo AI (CEO)</Text>
+              <Text style={styles.settingArrow}>›</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Ứng dụng</Text>
           <View style={styles.settingRow}>
@@ -153,6 +172,7 @@ export default function SettingsScreen() {
           BAOLAM Messenger v2.0.0{'\n'}© 2026 BAOLAM Corporation
         </Text>
       </ScrollView>
+      <CeoReportModal visible={showCeoReport} isDark={isDark} onClose={() => setShowCeoReport(false)} />
     </SafeAreaView>
   );
 }

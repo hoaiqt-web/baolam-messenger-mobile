@@ -19,6 +19,7 @@ import {
 } from '@/services/notifications/pushNotifications';
 
 import { AppThemeProvider, useAppTheme } from '@/contexts/ThemeContext';
+import { AppShareIntentProvider } from '@/features/chat/AppShareIntentProvider';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -64,7 +65,9 @@ export default function RootLayout() {
 
   return (
     <AppThemeProvider>
-      <RootLayoutInner />
+      <AppShareIntentProvider>
+        <RootLayoutInner />
+      </AppShareIntentProvider>
     </AppThemeProvider>
   );
 }
