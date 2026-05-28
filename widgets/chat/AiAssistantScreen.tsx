@@ -68,10 +68,27 @@ function sourceSenderName(task: ConversationTask): string {
 
 type TabKey = 'assigned' | 'created' | 'overdue';
 
+type TaskSourceKey = 'all' | 'messenger' | 'erp';
+
 function tabToFilter(tab: TabKey): string {
   if (tab === 'assigned') return 'assigned_to_me';
   if (tab === 'created') return 'created_by_me';
   return 'overdue';
+}
+
+/** Nhãn nguồn task từ API (source_module) — khác với bộ lọc getMyTasks source= messenger|erp. */
+function taskSourceModuleLabel(raw?: string | null): string | null {
+  if (raw == null || String(raw).trim() === '') return null;
+  const m = String(raw).trim();
+  const labels: Record<string, string> = {
+    messenger: 'Messenger',
+    qlnm: 'QLNM',
+    erp_project: 'ERP · Dự án',
+    erp_po_approval: 'ERP · Duyệt PO',
+    ai_agent: 'AI',
+    manual: 'Thủ công',
+  };
+  return labels[m] ?? m.toUpperCase();
 }
 
 function timeAgoShort(dateString: string | undefined | null): string {
@@ -87,6 +104,27 @@ function timeAgoShort(dateString: string | undefined | null): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days} ngày trước`;
   return date.toLocaleDateString('vi-VN', { timeZone: VN_TZ });
+}
+
+/** Cùng rule với web TaskChecklistWidget: PENDING → DONE → REJECTED, rồi mới → cũ theo tin/created_at. */
+function sortAiAssistantTasks(tasks: ConversationTask[]): ConversationTask[] {
+  const out = [...tasks];
+  out.sort((a, b) => {
+    const priority = { PENDING: 0, DONE: 1, REJECTED: 2 } as const;
+    const pa =
+      priority[a.status as keyof typeof priority] ?? 99;
+    const pb =
+      priority[b.status as keyof typeof priority] ?? 99;
+    if (a.status !== b.status) return pa - pb;
+    const tA = toUtcDate(
+      a.source_message?.sent_at || a.created_at,
+    ).getTime();
+    const tB = toUtcDate(
+      b.source_message?.sent_at || b.created_at,
+    ).getTime();
+    return tB - tA;
+  });
+  return out;
 }
 
 type AiTaskRowProps = {
@@ -193,6 +231,29 @@ const AiTaskRow = memo(function AiTaskRow({
                 color="#F97316"
                 style={{ marginLeft: 4 }}
               />
+            ) : null}
+            {taskSourceModuleLabel(task.source_module) ? (
+              <View
+                style={{
+                  marginLeft: 6,
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: 8,
+                  backgroundColor: isDark ? 'rgba(99,102,241,0.22)' : 'rgba(79,70,229,0.1)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(129,140,248,0.4)' : 'rgba(79,70,229,0.22)',
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: '800',
+                    color: isDark ? '#C7D2FE' : '#4338CA',
+                  }}
+                >
+                  {taskSourceModuleLabel(task.source_module)}
+                </Text>
+              </View>
             ) : null}
           </View>
           <Text style={[styles.cardMeta, { color: textMuted }]}>
@@ -304,6 +365,7 @@ export function AiAssistantScreen({
   const { isDark } = useAppTheme();
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>('assigned');
+  const [taskSource, setTaskSource] = useState<TaskSourceKey>('all');
   const [tasks, setTasks] = useState<ConversationTask[]>([]);
   const [summary, setSummary] = useState<MyTasksSummary | null>(null);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
@@ -366,8 +428,9 @@ export function AiAssistantScreen({
   const fetchPage = useCallback(
     async (cursor: number | null, append: boolean) => {
       const filter = tabToFilter(tab);
+      const sourceArg = taskSource === 'all' ? undefined : taskSource;
       try {
-        const res = await chatApi.getMyTasks(filter, cursor);
+        const res = await chatApi.getMyTasks(filter, cursor, sourceArg);
         const next = Array.isArray(res.tasks) ? res.tasks : [];
         setSummary((prev) => res.summary ?? prev);
         setNextCursor(
@@ -383,17 +446,17 @@ export function AiAssistantScreen({
                 merged.push(t);
               }
             }
-            return merged;
+            return sortAiAssistantTasks(merged);
           });
         } else {
-          setTasks(next);
+          setTasks(sortAiAssistantTasks(next));
         }
       } catch (e) {
         console.warn('[AiAssistant] load failed', e);
         if (!append) setTasks([]);
       }
     },
-    [tab],
+    [tab, taskSource],
   );
 
   useEffect(() => {
@@ -406,7 +469,7 @@ export function AiAssistantScreen({
     return () => {
       cancelled = true;
     };
-  }, [tab, fetchPage]);
+  }, [tab, taskSource, fetchPage]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -613,6 +676,36 @@ export function AiAssistantScreen({
             Đây là bảng tổng hợp nhiệm vụ. Chạm một dòng để mở tin nhắn gốc trong
             chat.
           </Text>
+        </View>
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+          {(
+            [
+              { key: 'all' as const, label: 'Tất cả nguồn' },
+              { key: 'messenger' as const, label: 'Messenger' },
+              { key: 'erp' as const, label: 'ERP' },
+            ] as const
+          ).map(({ key, label }) => {
+            const on = taskSource === key;
+            return (
+              <TouchableOpacity
+                key={key}
+                onPress={() => setTaskSource(key)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: on ? accent : borderCol,
+                  backgroundColor: on ? `${accent}22` : 'transparent',
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: on ? accent : textMuted }}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         <View style={[styles.tabRow, { backgroundColor: isDark ? '#0F172A' : '#E2E8F0' }]}>

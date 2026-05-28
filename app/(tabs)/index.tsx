@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -35,6 +35,10 @@ import {
   unregisterPushTokenFromBackend,
 } from '@/services/notifications/pushNotifications';
 import { AiAssistantHomeCard } from '@/widgets/chat/AiAssistantHomeCard';
+import { isAxiosError } from 'axios';
+import { ChatDuplicateGroupModal } from '@/components/chat/ChatDuplicateGroupModal';
+import type { ChatConversation } from '@/Models/chat/types';
+import { useChatUiStore } from '@/features/chat/chatUiStore';
 
 // Color palette for avatars
 const AVATAR_COLORS = [
@@ -54,6 +58,43 @@ function getAvatarColor(name: string) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+/** Conversations with no last message (or empty body + no attachments) sort to the bottom. */
+function getConversationListSortMeta(item: {
+  id?: number;
+  latestMessage?: {
+    body?: string | null;
+    sentAt?: string | null;
+    sent_at?: string | null;
+    attachments?: unknown[];
+  } | null;
+  last_message_at?: string | null;
+  lastMessageAt?: string | null;
+  updated_at?: string | null;
+}): { hasContent: boolean; sortTime: number; id: number } {
+  const lm = item.latestMessage;
+  const body = String(lm?.body ?? '').trim();
+  const att = lm?.attachments;
+  const hasAttachments = Array.isArray(att) && att.length > 0;
+  const hasContent = Boolean(lm) && (body.length > 0 || hasAttachments);
+
+  const timeStr =
+    lm?.sentAt ||
+    lm?.sent_at ||
+    item.last_message_at ||
+    item.lastMessageAt ||
+    item.updated_at;
+  let sortTime = 0;
+  if (timeStr) {
+    const d = new Date(timeStr);
+    sortTime = Number.isFinite(d.getTime()) ? d.getTime() : 0;
+  }
+  return {
+    hasContent,
+    sortTime,
+    id: Number(item.id) || 0,
+  };
+}
+
 function formatTimeAgo(dateStr: string | null | undefined) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -70,6 +111,26 @@ function formatTimeAgo(dateStr: string | null | undefined) {
   return `${d.getDate()}/${d.getMonth() + 1}`;
 }
 
+/** Đối phương trong hội thoại 1-1 (không dùng cho nhóm). */
+function getDirectPeerUserId(conversation: any, selfId: number | null): number | null {
+  if (selfId == null) return null;
+  if (String(conversation?.type) === 'group') return null;
+  const parts = conversation?.participants;
+  if (!Array.isArray(parts)) return null;
+  const other = parts.find((p: any) => Number(p?.id) !== Number(selfId));
+  const oid = Number(other?.id);
+  return Number.isFinite(oid) && oid > 0 ? oid : null;
+}
+
+function attendanceListDotColor(
+  peerId: number | null,
+  map: Record<number, boolean> | null,
+  mapReady: boolean,
+): string | null {
+  if (!peerId || !mapReady || map == null) return null;
+  return map[peerId] === true ? '#22C55E' : '#EF4444';
+}
+
 export default function HomeScreen() {
   const { isDark } = useAppTheme();
   const styles = getIndexStyles(isDark);
@@ -77,6 +138,8 @@ export default function HomeScreen() {
   const POLL_INTERVAL_HEALTHY_MS = 25_000;
   const POLL_INTERVAL_DEGRADED_MS = 5_000;
   const router = useRouter();
+  const pendingOutgoingShare = useChatUiStore((s) => s.pendingOutgoingShare);
+  const clearPendingOutgoingShare = useChatUiStore((s) => s.clearPendingOutgoingShare);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
@@ -95,9 +158,15 @@ export default function HomeScreen() {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showNewChatSheet, setShowNewChatSheet] = useState(false);
-  const [groupName, setGroupName] = useState('');
+  const [duplicateExistingGroup, setDuplicateExistingGroup] =
+    useState<ChatConversation | null>(null);
   const [groupUsersList, setGroupUsersList] = useState<any[]>([]);
+  const [groupName, setGroupName] = useState('');
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<number[]>([]);
+  const [attendanceCheckedInByUserId, setAttendanceCheckedInByUserId] = useState<
+    Record<number, boolean> | null
+  >(null);
+  const [attendanceMapReady, setAttendanceMapReady] = useState(false);
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -113,6 +182,39 @@ export default function HomeScreen() {
   useEffect(() => {
     chatsRef.current = chats;
   }, [chats]);
+
+  useEffect(() => {
+    if (!isAuthenticated || currentUserId == null) {
+      setAttendanceMapReady(false);
+      return;
+    }
+    let cancelled = false;
+    void chatApi
+      .getAttendanceTodaySummary()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.error) {
+          setAttendanceCheckedInByUserId(null);
+          setAttendanceMapReady(false);
+          return;
+        }
+        const next: Record<number, boolean> = {};
+        for (const b of res.badges ?? []) {
+          next[Number(b.userId)] = !!b.checkedIn;
+        }
+        setAttendanceCheckedInByUserId(next);
+        setAttendanceMapReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAttendanceCheckedInByUserId(null);
+          setAttendanceMapReady(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, currentUserId, chats]);
 
   useEffect(() => {
     const initApp = async () => {
@@ -290,8 +392,8 @@ export default function HomeScreen() {
             ? 'Hình ảnh'
             : 'Tin nhắn mới';
 
-      const title = muted ? conversationName : senderName;
-      const body = muted ? `${senderName}: ${bodyText}` : bodyText;
+      const title = isGroup ? conversationName : senderName;
+      const body = isGroup ? `${senderName}: ${bodyText}` : bodyText;
 
       void presentLocalChatMessageNotification({
         conversationId: cid,
@@ -371,10 +473,7 @@ export default function HomeScreen() {
     };
   }, [isAuthenticated]);
 
-  const getDisplayTitle = (item: any) => {
-    // For direct chats: always show the other person's name
-    // API returns participants as flat objects: { id, username, fullName, ... }
-    // NOT nested: { user: { id, username } }
+  const getDisplayTitle = useCallback((item: any) => {
     if (item.type === 'direct' && item.participants) {
       const other = item.participants.find(
         (p: any) => {
@@ -394,10 +493,9 @@ export default function HomeScreen() {
         if (otherName) return otherName;
       }
     }
-    // For groups or when participant lookup fails
     if (item.name && item.name !== 'Trò chuyện riêng') return item.name;
     return item.type === 'direct' ? 'Tin nhắn riêng' : 'Nhóm không tên';
-  };
+  }, [currentUserId, username]);
 
   useEffect(() => {
     if (!isAuthenticated || debouncedSearch.length < 2) {
@@ -438,32 +536,69 @@ export default function HomeScreen() {
     };
   }, [debouncedSearch, isAuthenticated]);
 
+  const sortedChats = useMemo(() => {
+    const list = [...chats];
+    list.sort((a, b) => {
+      const ma = getConversationListSortMeta(a);
+      const mb = getConversationListSortMeta(b);
+      if (ma.hasContent !== mb.hasContent) {
+        return ma.hasContent ? -1 : 1;
+      }
+      if (ma.sortTime !== mb.sortTime) {
+        return mb.sortTime - ma.sortTime;
+      }
+      return mb.id - ma.id;
+    });
+    return list;
+  }, [chats]);
+
   const hasSearch = debouncedSearch.length > 0;
-  const localFilteredChats = hasSearch
-    ? chats.filter((item) => {
-        const query = debouncedSearch.toLowerCase();
-        const title = getDisplayTitle(item).toLowerCase();
-        const latestBody = String(item.latestMessage?.body || '').toLowerCase();
-        return title.includes(query) || latestBody.includes(query);
-      })
-    : chats;
+  const localFilteredChats = useMemo(
+    () =>
+      hasSearch
+        ? sortedChats.filter((item) => {
+            const query = debouncedSearch.toLowerCase();
+            const title = getDisplayTitle(item).toLowerCase();
+            const latestBody = String(item.latestMessage?.body || '').toLowerCase();
+            return title.includes(query) || latestBody.includes(query);
+          })
+        : sortedChats,
+    [hasSearch, sortedChats, debouncedSearch, getDisplayTitle],
+  );
 
-  const mergedSearchMap = new Map<number, any>();
-  [...directoryChats, ...localFilteredChats].forEach((item) => {
-    mergedSearchMap.set(Number(item.id), item);
-  });
-  const displayedChats = hasSearch
-    ? Array.from(mergedSearchMap.values())
-    : localFilteredChats;
+  const displayedChats = useMemo(() => {
+    const mergedSearchMap = new Map<number, any>();
+    [...directoryChats, ...localFilteredChats].forEach((item) => {
+      mergedSearchMap.set(Number(item.id), item);
+    });
+    const displayedChatsRaw = hasSearch
+      ? Array.from(mergedSearchMap.values())
+      : localFilteredChats;
+    return [...displayedChatsRaw].sort((a, b) => {
+      const ma = getConversationListSortMeta(a);
+      const mb = getConversationListSortMeta(b);
+      if (ma.hasContent !== mb.hasContent) {
+        return ma.hasContent ? -1 : 1;
+      }
+      if (ma.sortTime !== mb.sortTime) {
+        return mb.sortTime - ma.sortTime;
+      }
+      return mb.id - ma.id;
+    });
+  }, [hasSearch, directoryChats, localFilteredChats]);
 
-  const searchRows = hasSearch
-    ? [
-        ...directoryUsers.map((user) => ({ rowType: 'user', item: user })),
-        ...displayedChats.map((chat) => ({ rowType: 'chat', item: chat })),
-      ]
-    : displayedChats.map((chat) => ({ rowType: 'chat', item: chat }));
+  const searchRows = useMemo(
+    () =>
+      hasSearch
+        ? [
+            ...directoryUsers.map((user) => ({ rowType: 'user' as const, item: user })),
+            ...displayedChats.map((chat) => ({ rowType: 'chat' as const, item: chat })),
+          ]
+        : displayedChats.map((chat) => ({ rowType: 'chat' as const, item: chat })),
+    [hasSearch, directoryUsers, displayedChats],
+  );
 
-  const handleOpenDirectUser = async (user: any) => {
+  const handleOpenDirectUser = useCallback(async (user: any) => {
     const userConversationId = Number(user?.conversationId || 0);
     const userLabel = user.fullName || user.username || 'Người dùng';
     if (Number.isFinite(userConversationId) && userConversationId > 0) {
@@ -483,7 +618,7 @@ export default function HomeScreen() {
           pathname: '/chat/[id]',
           params: { id: conversation.id, name: userLabel },
         });
-        fetchChats();
+        fetchChatsRef.current();
       }
     } catch (error) {
       console.error('open direct user error', error);
@@ -491,135 +626,222 @@ export default function HomeScreen() {
     } finally {
       setOpeningUserId(null);
     }
-  };
+  }, [router]);
 
-  const renderRow = useCallback(({ item: row, index }: { item: any; index: number }) => {
-    if (row.rowType === 'user') {
-      const user = row.item;
-      const userName = user.fullName || user.username || 'Người dùng';
-      const userAvatarColor = getAvatarColor(userName);
-      const hasConversation = Number(user.conversationId || 0) > 0;
-      const showUserHeader =
-        index === 0 || searchRows[index - 1]?.rowType !== 'user';
+  const renderRow = useCallback(
+    ({ item: row, index }: { item: (typeof searchRows)[number]; index: number }) => {
+      if (row.rowType === 'user') {
+        const user = row.item;
+        const userName = user.fullName || user.username || 'Người dùng';
+        const userAvatarColor = getAvatarColor(userName);
+        const hasConversation = Number(user.conversationId || 0) > 0;
+        const showUserHeader =
+          index === 0 || searchRows[index - 1]?.rowType !== 'user';
+        const userDotColor = attendanceListDotColor(
+          Number(user.id),
+          attendanceCheckedInByUserId,
+          attendanceMapReady,
+        );
+        const attendanceDotBorder = isDark ? '#152033' : '#FFFFFF';
+
+        return (
+          <>
+            {showUserHeader ? (
+              <Text style={styles.searchSectionHeader}>Người dùng</Text>
+            ) : null}
+            <TouchableOpacity
+              style={styles.chatCard}
+              onPress={() => handleOpenDirectUser(user)}
+              activeOpacity={0.6}
+              disabled={openingUserId === Number(user.id)}
+            >
+              <View
+                style={[
+                  styles.chatAvatar,
+                  { backgroundColor: userAvatarColor },
+                ]}
+              >
+                <Text style={styles.avatarText}>
+                  {userName[0]?.toUpperCase() || '?'}
+                </Text>
+                {userDotColor ? (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      bottom: -1,
+                      right: -1,
+                      width: 11,
+                      height: 11,
+                      borderRadius: 6,
+                      backgroundColor: userDotColor,
+                      borderWidth: 2,
+                      borderColor: attendanceDotBorder,
+                    }}
+                  />
+                ) : null}
+              </View>
+              <View style={styles.chatInfo}>
+                <View style={styles.chatTopRow}>
+                  <Text style={styles.chatName} numberOfLines={1}>
+                    {userName}
+                  </Text>
+                </View>
+                <Text style={styles.chatPreview} numberOfLines={1}>
+                  @{user.username}{' '}
+                  {hasConversation
+                    ? '• Đã có hội thoại'
+                    : '• Nhấn để nhắn tin'}
+                </Text>
+              </View>
+              {openingUserId === Number(user.id) ? (
+                <ActivityIndicator size='small' color='#1E3A8A' />
+              ) : null}
+            </TouchableOpacity>
+          </>
+        );
+      }
+
+      const item = row.item;
+      const displayTitle = getDisplayTitle(item);
+      const avatarColor = getAvatarColor(displayTitle);
+      const timeAgo = formatTimeAgo(
+        item.latestMessage?.sentAt ||
+          item.latestMessage?.sent_at ||
+          item.last_message_at,
+      );
+      const isGroup = item.type === 'group';
+      const peerId = getDirectPeerUserId(item, currentUserId);
+      const peerDotColor = !isGroup
+        ? attendanceListDotColor(
+            peerId,
+            attendanceCheckedInByUserId,
+            attendanceMapReady,
+          )
+        : null;
+      const attendanceDotBorder = isDark ? '#152033' : '#FFFFFF';
+      const previewBody = item.latestMessage?.body || 'Chưa có tin nhắn';
+      const senderPrefix =
+        isGroup && item.latestMessage?.sender
+          ? `${item.latestMessage.sender.fullName || item.latestMessage.sender.full_name || item.latestMessage.sender.username}: `
+          : '';
+      const showChatHeader =
+        hasSearch &&
+        (index === 0 || searchRows[index - 1]?.rowType !== 'chat');
 
       return (
         <>
-          {showUserHeader ? (
-            <Text style={styles.searchSectionHeader}>Người dùng</Text>
+          {showChatHeader ? (
+            <Text style={styles.searchSectionHeader}>Hội thoại</Text>
           ) : null}
           <TouchableOpacity
             style={styles.chatCard}
-            onPress={() => handleOpenDirectUser(user)}
+            onPress={() =>
+              router.push({
+                pathname: '/chat/[id]',
+                params: { id: item.id, name: displayTitle, type: item.type || 'direct' },
+              })
+            }
             activeOpacity={0.6}
-            disabled={openingUserId === Number(user.id)}
           >
             <View
               style={[
                 styles.chatAvatar,
-                { backgroundColor: userAvatarColor },
+                { backgroundColor: avatarColor },
               ]}
             >
-              <Text style={styles.avatarText}>
-                {userName[0]?.toUpperCase() || '?'}
-              </Text>
+              {item.avatarUrl ? (
+                <Image
+                  source={{ uri: item.avatarUrl }}
+                  style={styles.chatAvatarImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
+              ) : (
+                <Text maxFontSizeMultiplier={1} style={styles.avatarText}>
+                  {displayTitle[0].toUpperCase()}
+                </Text>
+              )}
+              {isGroup && (
+                <View style={styles.groupBadge}>
+                  <Text style={styles.groupBadgeText}>👥</Text>
+                </View>
+              )}
+              {peerDotColor ? (
+                <View
+                  style={{
+                    position: 'absolute',
+                    bottom: -1,
+                    right: -1,
+                    width: 11,
+                    height: 11,
+                    borderRadius: 6,
+                    backgroundColor: peerDotColor,
+                    borderWidth: 2,
+                    borderColor: attendanceDotBorder,
+                  }}
+                />
+              ) : null}
             </View>
             <View style={styles.chatInfo}>
               <View style={styles.chatTopRow}>
-                <Text style={styles.chatName} numberOfLines={1}>
-                  {userName}
+                <Text maxFontSizeMultiplier={1} style={[styles.chatName, item.hasUnread && styles.chatNameUnread]} numberOfLines={1}>
+                  {displayTitle}
                 </Text>
+                {timeAgo ? (
+                  <Text maxFontSizeMultiplier={1} style={[styles.chatTime, item.hasUnread && styles.chatTimeUnread]}>{timeAgo}</Text>
+                ) : null}
               </View>
-              <Text style={styles.chatPreview} numberOfLines={1}>
-                @{user.username}{' '}
-                {hasConversation
-                  ? '• Đã có hội thoại'
-                  : '• Nhấn để nhắn tin'}
-              </Text>
+              <View style={styles.chatBottomRow}>
+                <Text maxFontSizeMultiplier={1} style={[styles.chatPreview, item.hasUnread && styles.chatPreviewUnread]} numberOfLines={1}>
+                  {senderPrefix}
+                  {previewBody}
+                </Text>
+                {item.hasUnread && <View style={styles.unreadDot} />}
+              </View>
             </View>
-            {openingUserId === Number(user.id) ? (
-              <ActivityIndicator size='small' color='#1E3A8A' />
-            ) : null}
           </TouchableOpacity>
         </>
       );
-    }
+    },
+    [
+      searchRows,
+      attendanceCheckedInByUserId,
+      attendanceMapReady,
+      isDark,
+      styles,
+      openingUserId,
+      handleOpenDirectUser,
+      getDisplayTitle,
+      currentUserId,
+      hasSearch,
+      router,
+    ],
+  );
 
-    const item = row.item;
-    const displayTitle = getDisplayTitle(item);
-    const avatarColor = getAvatarColor(displayTitle);
-    const timeAgo = formatTimeAgo(
-      item.latestMessage?.sentAt ||
-        item.latestMessage?.sent_at ||
-        item.last_message_at,
-    );
-    const isGroup = item.type === 'group';
-    const previewBody = item.latestMessage?.body || 'Chưa có tin nhắn';
-    const senderPrefix =
-      isGroup && item.latestMessage?.sender
-        ? `${item.latestMessage.sender.fullName || item.latestMessage.sender.full_name || item.latestMessage.sender.username}: `
-        : '';
-    const showChatHeader =
-      hasSearch &&
-      (index === 0 || searchRows[index - 1]?.rowType !== 'chat');
-
-    return (
-      <>
-        {showChatHeader ? (
-          <Text style={styles.searchSectionHeader}>Hội thoại</Text>
-        ) : null}
+  const renderGroupUser = useCallback(
+    ({ item: u }: { item: any }) => {
+      const isSelected = selectedGroupMembers.includes(u.id);
+      return (
         <TouchableOpacity
-          style={styles.chatCard}
-          onPress={() =>
-            router.push({
-              pathname: '/chat/[id]',
-              params: { id: item.id, name: displayTitle, type: item.type || 'direct' },
-            })
-          }
-          activeOpacity={0.6}
+          style={[styles.groupUserItem, isSelected && styles.groupUserItemSelected]}
+          onPress={() => {
+            setSelectedGroupMembers((prev) =>
+              isSelected
+                ? prev.filter((id) => id !== u.id)
+                : [...prev, u.id],
+            );
+          }}
         >
-          <View
-            style={[
-              styles.chatAvatar,
-              { backgroundColor: avatarColor },
-            ]}
-          >
-            {item.avatarUrl ? (
-              <Image
-                source={{ uri: item.avatarUrl }}
-                style={styles.chatAvatarImage}
-              />
-            ) : (
-              <Text maxFontSizeMultiplier={1} style={styles.avatarText}>
-                {displayTitle[0].toUpperCase()}
-              </Text>
-            )}
-            {isGroup && (
-              <View style={styles.groupBadge}>
-                <Text style={styles.groupBadgeText}>👥</Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.chatInfo}>
-            <View style={styles.chatTopRow}>
-              <Text maxFontSizeMultiplier={1} style={[styles.chatName, item.hasUnread && styles.chatNameUnread]} numberOfLines={1}>
-                {displayTitle}
-              </Text>
-              {timeAgo ? (
-                <Text maxFontSizeMultiplier={1} style={[styles.chatTime, item.hasUnread && styles.chatTimeUnread]}>{timeAgo}</Text>
-              ) : null}
-            </View>
-            <View style={styles.chatBottomRow}>
-              <Text maxFontSizeMultiplier={1} style={[styles.chatPreview, item.hasUnread && styles.chatPreviewUnread]} numberOfLines={1}>
-                {senderPrefix}
-                {previewBody}
-              </Text>
-              {item.hasUnread && <View style={styles.unreadDot} />}
-            </View>
-          </View>
+          <Text style={styles.groupUserName}>
+            {isSelected ? '✅ ' : '○ '}
+            {u.fullName || u.full_name || u.username}
+          </Text>
+          <Text style={styles.groupUserUsername}>@{u.username}</Text>
         </TouchableOpacity>
-      </>
-    );
-  }, [styles, searchRows, hasSearch, openingUserId, router, handleOpenDirectUser]);
+      );
+    },
+    [selectedGroupMembers, styles],
+  );
 
   if (isInitializing) {
     return (
@@ -669,12 +891,43 @@ export default function HomeScreen() {
           <Text style={styles.searchError}>{searchError}</Text>
         ) : null}
 
+        {pendingOutgoingShare?.files?.length ? (
+          <View
+            style={{
+              marginHorizontal: 16,
+              marginBottom: 10,
+              padding: 12,
+              borderRadius: 10,
+              backgroundColor: isDark ? '#1E3A5F' : '#EEF2FF',
+              borderWidth: 1,
+              borderColor: isDark ? '#334155' : '#C7D2FE',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+          >
+            <Text
+              style={{ flex: 1, fontSize: 13, color: isDark ? '#E2E8F0' : '#1E3A8A' }}
+            >
+              Chọn hội thoại để gửi {pendingOutgoingShare.files.length} mục từ chia sẻ
+            </Text>
+            <TouchableOpacity onPress={() => clearPendingOutgoingShare()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: isDark ? '#94A3B8' : '#64748B' }}>Hủy</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <FlatList
           data={searchRows}
           keyExtractor={(row) =>
             `${row.rowType}-${row.rowType === 'user' ? row.item.id : row.item.id}`
           }
           contentContainerStyle={{ paddingBottom: 20 }}
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={8}
+          removeClippedSubviews
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -747,6 +1000,16 @@ export default function HomeScreen() {
                 <Text style={styles.sheetItemText}>Tạo nhóm chat</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                style={styles.sheetItem}
+                onPress={() => {
+                  setShowNewChatSheet(false);
+                  router.push('/my-cloud' as import('expo-router').Href);
+                }}
+              >
+                <Text style={styles.sheetItemIcon}>☁️</Text>
+                <Text style={styles.sheetItemText}>Tài liệu của tôi (Cloud)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[styles.sheetItem, { borderBottomWidth: 0 }]}
                 onPress={() => setShowNewChatSheet(false)}
               >
@@ -780,27 +1043,7 @@ export default function HomeScreen() {
                 data={groupUsersList.filter((u: any) => u.id !== currentUserId)}
                 keyExtractor={(u) => String(u.id)}
                 style={styles.groupUserList}
-                renderItem={({ item: u }) => {
-                  const isSelected = selectedGroupMembers.includes(u.id);
-                  return (
-                    <TouchableOpacity
-                      style={[styles.groupUserItem, isSelected && styles.groupUserItemSelected]}
-                      onPress={() => {
-                        setSelectedGroupMembers((prev) =>
-                          isSelected
-                            ? prev.filter((id) => id !== u.id)
-                            : [...prev, u.id],
-                        );
-                      }}
-                    >
-                      <Text style={styles.groupUserName}>
-                        {isSelected ? '✅ ' : '○ '}
-                        {u.fullName || u.full_name || u.username}
-                      </Text>
-                      <Text style={styles.groupUserUsername}>@{u.username}</Text>
-                    </TouchableOpacity>
-                  );
-                }}
+                renderItem={renderGroupUser}
                 ListEmptyComponent={
                   <View style={{ padding: 16, alignItems: 'center' }}>
                     <ActivityIndicator size="small" color="#1E3A8A" />
@@ -837,9 +1080,24 @@ export default function HomeScreen() {
                       // Navigate to new group
                       router.push({
                         pathname: '/chat/[id]',
-                        params: { id: conv.id, name: conv.name || groupName },
+                        params: { id: conv.id, name: conv.name || groupName, type: 'group' },
                       });
-                    } catch {
+                    } catch (e: unknown) {
+                      if (
+                        isAxiosError(e) &&
+                        e.response?.status === 409 &&
+                        e.response.data &&
+                        typeof e.response.data === 'object'
+                      ) {
+                        const d = e.response.data as {
+                          code?: string;
+                          existingConversation?: ChatConversation;
+                        };
+                        if (d.code === 'DUPLICATE_GROUP' && d.existingConversation) {
+                          setDuplicateExistingGroup(d.existingConversation);
+                          return;
+                        }
+                      }
                       Alert.alert('Lỗi', 'Không thể tạo nhóm');
                     }
                   }}
@@ -850,6 +1108,28 @@ export default function HomeScreen() {
             </View>
           </View>
         </Modal>
+
+        <ChatDuplicateGroupModal
+          visible={!!duplicateExistingGroup}
+          existing={duplicateExistingGroup}
+          isDark={isDark}
+          onClose={() => setDuplicateExistingGroup(null)}
+          onGoToExisting={(conv) => {
+            setDuplicateExistingGroup(null);
+            setShowCreateGroup(false);
+            setGroupName('');
+            setSelectedGroupMembers([]);
+            router.push({
+              pathname: '/chat/[id]',
+              params: {
+                id: String(conv.id),
+                name: conv.name || 'Nhóm',
+                type: 'group',
+              },
+            });
+          }}
+          onEditSelection={() => setDuplicateExistingGroup(null)}
+        />
       </SafeAreaView>
     );
   }
@@ -993,6 +1273,7 @@ const getIndexStyles = (isDark: boolean) => {
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
+    position: 'relative',
   },
   avatarText: { fontSize: 16, fontWeight: '600', color: '#FFF' },
   groupBadge: {

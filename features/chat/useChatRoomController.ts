@@ -1249,11 +1249,19 @@ export function useChatRoomController(): UseChatRoomState {
               : targetConversationName ||
                 normalizedSocketMessage.sender.fullName ||
                 normalizedSocketMessage.sender.username;
-          const body =
+          const senderLabel =
+            normalizedSocketMessage.sender.fullName ||
+            normalizedSocketMessage.sender.username ||
+            'Thành viên';
+          const messagePreview =
             normalizedSocketMessage.body?.trim() ||
             ((normalizedSocketMessage.attachments?.length ?? 0) > 0
               ? 'Hình ảnh'
               : 'Tin nhắn mới');
+          const body =
+            targetConversationType === 'group'
+              ? `${senderLabel}: ${messagePreview}`
+              : messagePreview;
           const notifyResult = notifyBrowserMessage({
             title,
             body,
