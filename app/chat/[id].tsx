@@ -2627,6 +2627,15 @@ export default function ChatScreen() {
               ) : null}
             </View>
           ) : null}
+          <View style={{ flex: 1 }}>
+          {uniqueMessages.length === 0 ? (
+            <View style={styles.emptyChat} pointerEvents="none">
+              <Text style={styles.emptyChatIcon}>💬</Text>
+              <Text style={styles.emptyChatText}>
+                Hãy gửi tin nhắn đầu tiên!
+              </Text>
+            </View>
+          ) : null}
           <FlatList
             ref={flatListRef}
             data={uniqueMessages}
@@ -2661,15 +2670,8 @@ export default function ChatScreen() {
                 </View>
               ) : null
             }
-            ListEmptyComponent={
-              <View style={styles.emptyChat}>
-                <Text style={styles.emptyChatIcon}>💬</Text>
-                <Text style={styles.emptyChatText}>
-                  Hãy gửi tin nhắn đầu tiên!
-                </Text>
-              </View>
-            }
           />
+          </View>
 
           {/* Reply preview bar */}
           {replyTarget && (

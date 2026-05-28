@@ -72,7 +72,11 @@ export const getChatStyles = (isDark: boolean) => {
     timeText: { fontSize: 11, color: textSecondary, marginTop: 2, marginLeft: 4 },
     timeTextMine: { marginRight: 4, marginLeft: 0, textAlign: 'right' },
 
-    emptyChat: { alignItems: 'center', paddingTop: 60, transform: [{ scaleY: -1 }] },
+    emptyChat: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
     emptyChatIcon: { fontSize: 48, marginBottom: 12 },
     emptyChatText: { fontSize: 16, color: textSecondary },
 
