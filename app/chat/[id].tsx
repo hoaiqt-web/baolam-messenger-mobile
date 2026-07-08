@@ -81,10 +81,10 @@ import {
   useChatRouteParamsOverride,
 } from '@/features/chat/ChatEmbedContext';
 import {
-  ErpStructuredMessage,
-  isErpAssignmentMessage,
-  isErpCompletionReport,
-} from '@/components/chat/ErpStructuredMessage';
+  StructuredChatMessage,
+  isStructuredChatMessage,
+  shouldHideDefaultAttachments,
+} from '@/components/chat/StructuredChatMessage';
 import { useChatUiStore } from '@/features/chat/chatUiStore';
 import {
   attendanceHeaderDotColor,
@@ -94,6 +94,14 @@ import { ChatDeleteGroupModal, type DeleteGroupInfo } from '@/components/chat/Ch
 import { ChatReadReceiptsModal } from '@/components/chat/ChatReadReceiptsModal';
 import { ChatMessageFilterModal, type MessageListFilter } from '@/components/chat/ChatMessageFilterModal';
 import { ChatAiAdvancedModal } from '@/components/chat/ChatAiAdvancedModal';
+import { ChatMessageGeneratedTasks } from '@/components/chat/ChatMessageGeneratedTasks';
+import { ChatGroupBoardModal } from '@/components/chat/ChatGroupBoardModal';
+import { ChatMessageText } from '@/components/chat/ChatMessageText';
+import { MarkdownInlineText } from '@/components/chat/MarkdownInlineText';
+import { downloadImageFromUrl } from '@/features/chat/downloadImageUtils';
+import { getChatMessagePreview } from '@/features/chat/messagePreview';
+import { extractGeneratedTasks } from '@/features/chat/generatedTasksUtils';
+import { useAuthStore } from '@/features/auth/authStore';
 
 // Notification sound player
 let _notifSound: Audio.Sound | null = null;
@@ -248,6 +256,7 @@ export default function ChatScreen() {
     routeOverride?.jumpMessageId ?? searchParams.jumpMessageId ?? '',
   );
   const router = useRouter();
+  const authUser = useAuthStore((state) => state.user);
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -325,13 +334,15 @@ export default function ChatScreen() {
   });
   const [showMessageFilter, setShowMessageFilter] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([]);
-  const [showPinnedList, setShowPinnedList] = useState(false);
+  const [showGroupBoard, setShowGroupBoard] = useState(false);
+  const [isDownloadingImage, setIsDownloadingImage] = useState(false);
   const [deleteGroupInfo, setDeleteGroupInfo] = useState<DeleteGroupInfo | null>(null);
   const [showDeleteGroup, setShowDeleteGroup] = useState(false);
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
   const [readReceiptMessageId, setReadReceiptMessageId] = useState(0);
   const [showReadReceipts, setShowReadReceipts] = useState(false);
   const [showAiAdvanced, setShowAiAdvanced] = useState(false);
+  const [showChatToolsMenu, setShowChatToolsMenu] = useState(false);
   const [dmPeerUserId, setDmPeerUserId] = useState<number | null>(null);
   const [peerAttendanceLine, setPeerAttendanceLine] = useState<string | null>(null);
   const [peerAttendanceLoading, setPeerAttendanceLoading] = useState(false);
@@ -373,6 +384,11 @@ export default function ChatScreen() {
     }
   }, [isGroup, conversationId]);
 
+  const pinnedMessageIds = useMemo(
+    () => new Set(pinnedMessages.map((p) => Number(p.message.id))),
+    [pinnedMessages],
+  );
+
   const pinnedBarPreview = useMemo(() => {
     const p = pinnedMessages[0];
     if (!p?.message) return '';
@@ -381,10 +397,23 @@ export default function ChatScreen() {
       (p.message.sender as { full_name?: string } | undefined)?.full_name ||
       p.message.sender?.username ||
       'Thành viên';
-    const body = String(p.message.body || '').trim();
-    const preview = body.length > 0 ? body : 'Hình ảnh / file đính kèm';
+    const preview = getChatMessagePreview(p.message.body) || 'Hình ảnh / file đính kèm';
     return `${sender}: ${preview}`;
   }, [pinnedMessages]);
+
+  const handleUnpinMessage = useCallback(
+    async (messageId: number) => {
+      if (!Number.isFinite(conversationId) || conversationId <= 0) return;
+      try {
+        await chatApi.unpinMessage(conversationId, messageId);
+        await refreshPinnedMessages();
+        Alert.alert('✅', 'Đã bỏ ghim tin nhắn');
+      } catch {
+        Alert.alert('Lỗi', 'Không thể bỏ ghim tin nhắn');
+      }
+    },
+    [conversationId, refreshPinnedMessages],
+  );
 
   const firstPinnedMessageId = useMemo(() => {
     const mid = Number(pinnedMessages[0]?.message?.id);
@@ -490,7 +519,7 @@ export default function ChatScreen() {
   const openImageViewerFor = useCallback(
     (messageItem: any, attachment: any, resolvedUrl: string) => {
       const urls = imageGalleryEntries.map((e) => e.url);
-      if (urls.length === 0) {
+      if (urls.length === 0 || (!urls.includes(resolvedUrl) && !imageGalleryEntries.some(e => e.url === resolvedUrl))) {
         setGalleryVisibleIndex(0);
         setImageViewer({
           urls: [resolvedUrl],
@@ -507,7 +536,7 @@ export default function ChatScreen() {
       }
       const index = findGalleryStartIndex(
         imageGalleryEntries,
-        messageItem.id,
+        messageItem?.id,
         attachment,
         resolvedUrl,
       );
@@ -606,6 +635,22 @@ export default function ChatScreen() {
     if (!imageViewer) return false;
     const id = Number(imageViewer.entries[galleryVisibleIndex]?.attachmentId);
     return Number.isFinite(id) && id > 0;
+  }, [imageViewer, galleryVisibleIndex]);
+
+  const handleDownloadViewerImage = useCallback(async () => {
+    if (!imageViewer?.urls?.length) return;
+    const url = imageViewer.urls[galleryVisibleIndex];
+    if (!url) return;
+    const entry = imageViewer.entries[galleryVisibleIndex];
+    setIsDownloadingImage(true);
+    try {
+      await downloadImageFromUrl(url, {
+        fileName: entry?.attachmentId ? `chat-${entry.attachmentId}.jpg` : undefined,
+        dialogTitle: 'Lưu ảnh',
+      });
+    } finally {
+      setIsDownloadingImage(false);
+    }
   }, [imageViewer, galleryVisibleIndex]);
 
   const refreshMentionMenu = useCallback(
@@ -802,6 +847,20 @@ export default function ChatScreen() {
       undefined,
       () => {
         setTaskRemoteTick((n) => n + 1);
+      },
+      (payload) => {
+        const updated = payload.message;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            Number(msg.id) === Number(updated.id)
+              ? {
+                  ...msg,
+                  ...updated,
+                  body: updated.body,
+                }
+              : msg,
+          ),
+        );
       },
     );
   }, [conversationId]);
@@ -2055,9 +2114,9 @@ export default function ChatScreen() {
     const timeStr = formatTime(item.sentAt || item.sent_at || item.created_at);
     const avatarColor = getAvatarColor(senderName);
     const attachments = Array.isArray(item.attachments) ? item.attachments : [];
-    const hasText = Boolean(String(item.body || '').trim());
-
-    // Check if next message (visually above since inverted) is from same sender
+    const bodyText = String(item.body || '');
+    const hasText = Boolean(bodyText.trim());
+    const generatedTasks = extractGeneratedTasks(item as Record<string, unknown>);
     const nextMsg = uniqueMessages[index + 1];
     const nextSenderId =
       nextMsg?.sender_id || nextMsg?.senderId || nextMsg?.sender?.id;
@@ -2075,6 +2134,10 @@ export default function ChatScreen() {
 
     // Recalled message
     const isRecalled = item.isRecalled || item.is_recalled;
+    const isStructuredBody =
+      !isRecalled && hasText && isStructuredChatMessage(bodyText);
+    const hideWarehouseCardAttachments =
+      isStructuredBody && shouldHideDefaultAttachments(bodyText);
 
     const hasReactions =
       !isRecalled &&
@@ -2126,12 +2189,13 @@ export default function ChatScreen() {
                 styles.bubble,
                 isMine ? styles.bubbleMine : styles.bubbleOther,
                 isRecalled && styles.bubbleRecalled,
+                isStructuredBody && styles.bubbleStructured,
                 item.is_optimistic && styles.bubbleOptimistic,
               ]}
             >
               {isRecalled ? (
                 <Text style={styles.recalledText}>Tin nhắn đã thu hồi</Text>
-              ) : attachments.length > 0 ? (
+              ) : attachments.length > 0 && !hideWarehouseCardAttachments ? (
                 <View style={styles.attachmentList}>
                   {attachments.map((attachment: any, attachmentIndex: number) => {
                     const key = attachment?.id || `att-${attachmentIndex}`;
@@ -2197,20 +2261,48 @@ export default function ChatScreen() {
                 </View>
               ) : null}
               {!isRecalled && hasText ? (
-                isErpCompletionReport(String(item.body)) ||
-                isErpAssignmentMessage(String(item.body)) ? (
-                  <ErpStructuredMessage
-                    body={String(item.body)}
-                    isMine={isMine}
-                    isDark={isDark}
-                  />
+                isStructuredBody ? (
+                  <>
+                    <StructuredChatMessage
+                      body={bodyText}
+                      isMine={isMine}
+                      isDark={isDark}
+                      generatedTasks={generatedTasks}
+                      message={item}
+                      currentUserId={currentUserId}
+                      onImagePress={(att, url) => openImageViewerFor(item, att, url)}
+                    />
+                    <ChatMessageGeneratedTasks
+                      tasks={generatedTasks}
+                      currentUser={authUser}
+                      messageBody={bodyText}
+                      onTaskUpdated={() => void fetchMessages('poll')}
+                    />
+                  </>
                 ) : (
-                  <Text
-                    style={[styles.bubbleText, isMine && styles.bubbleTextMine]}
-                  >
-                    {item.body}
-                  </Text>
+                  <>
+                    <ChatMessageText
+                      body={bodyText}
+                      isMine={isMine}
+                      mentions={
+                        Array.isArray(item.mentions) && item.mentions.length > 0
+                          ? item.mentions
+                          : filterModalMembers
+                      }
+                      style={[styles.bubbleText, isMine && styles.bubbleTextMine]}
+                    />
+                    {generatedTasks.length > 0 ? (
+                      <ChatMessageGeneratedTasks
+                      tasks={generatedTasks}
+                      currentUser={authUser}
+                      messageBody={bodyText}
+                      onTaskUpdated={() => void fetchMessages('poll')}
+                    />
+                    ) : null}
+                  </>
                 )
+              ) : !isRecalled && generatedTasks.length > 0 ? (
+                <ChatMessageGeneratedTasks tasks={generatedTasks} messageBody={bodyText} currentUser={authUser} />
               ) : null}
             </View>
             {hasReactions ? (
@@ -2360,30 +2452,62 @@ export default function ChatScreen() {
             <Ionicons name="arrow-redo-outline" size={20} color={replyAccentColor} />
           </TouchableOpacity>
         ) : null}
-        <TouchableOpacity
-          style={[styles.bubbleCol, isMine && styles.bubbleColMine]}
-          activeOpacity={0.7}
-          onLongPress={() => handleLongPressMessage(item)}
-          delayLongPress={400}
-        >
-          {!isMine && isFirstInGroup && (
-            <Text style={[styles.senderLabel, { color: avatarColor }]}>
-              {senderName}
-            </Text>
-          )}
-          {useGroupedFrame ? (
-            <View
-              style={[
-                styles.messageGroupedFrame,
-                isMine && styles.messageGroupedFrameMine,
-              ]}
-            >
-              {messageCore}
-            </View>
-          ) : (
-            messageCore
-          )}
-        </TouchableOpacity>
+        {isStructuredBody ? (
+          <View
+            style={[
+              styles.bubbleCol,
+              isMine && styles.bubbleColMine,
+              styles.bubbleColStructured,
+            ]}
+          >
+            {!isMine && isFirstInGroup && (
+              <Text style={[styles.senderLabel, { color: avatarColor }]}>
+                {senderName}
+              </Text>
+            )}
+            {useGroupedFrame ? (
+              <View
+                style={[
+                  styles.messageGroupedFrame,
+                  isMine && styles.messageGroupedFrameMine,
+                  { width: '100%', alignSelf: 'stretch' },
+                ]}
+              >
+                {messageCore}
+              </View>
+            ) : (
+              messageCore
+            )}
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[
+              styles.bubbleCol,
+              isMine && styles.bubbleColMine,
+            ]}
+            activeOpacity={0.7}
+            onLongPress={() => handleLongPressMessage(item)}
+            delayLongPress={400}
+          >
+            {!isMine && isFirstInGroup && (
+              <Text style={[styles.senderLabel, { color: avatarColor }]}>
+                {senderName}
+              </Text>
+            )}
+            {useGroupedFrame ? (
+              <View
+                style={[
+                  styles.messageGroupedFrame,
+                  isMine && styles.messageGroupedFrameMine,
+                ]}
+              >
+                {messageCore}
+              </View>
+            ) : (
+              messageCore
+            )}
+          </TouchableOpacity>
+        )}
         {!isMine && canForward ? (
           <TouchableOpacity
             style={styles.messageSideAction}
@@ -2414,25 +2538,18 @@ export default function ChatScreen() {
     clearScrollAnchorLock,
     handleViewProfile,
     handleLongPressMessage,
+    authUser,
+    fetchMessages,
   ]);
 
   const renderNavHeaderActions = () => (
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8, gap: 10 }}>
-      {presentationExtras.cloudTabDocumentsNav ? (
-        <TouchableOpacity
-          onPress={presentationExtras.cloudTabDocumentsNav.onOpenDocuments}
-          accessibilityRole="button"
-          accessibilityLabel="Tài liệu của tôi"
-        >
-          <Ionicons name="folder-open-outline" size={22} color="#FFFFFF" />
-        </TouchableOpacity>
-      ) : null}
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 4, gap: 6 }}>
       {!isGroup && dmPeerUserId ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', maxWidth: 148 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', maxWidth: 120, marginRight: 2 }}>
           <View
             style={{
-              width: 8,
-              height: 8,
+              width: 7,
+              height: 7,
               borderRadius: 4,
               backgroundColor: attendanceHeaderDotColor(
                 peerAttendanceLine,
@@ -2441,35 +2558,19 @@ export default function ChatScreen() {
               marginRight: 4,
             }}
           />
-          <Text style={{ color: '#93C5FD', fontSize: 11 }} numberOfLines={1}>
+          <Text style={{ color: '#93C5FD', fontSize: 10 }} numberOfLines={1}>
             {peerAttendanceLoading ? 'Đang tải...' : (peerAttendanceLine ?? '—')}
           </Text>
         </View>
       ) : null}
-      <TouchableOpacity onPress={() => setShowMessageFilter(true)} accessibilityLabel="Lọc tin nhắn">
-        <Ionicons
-          name="funnel-outline"
-          size={20}
-          color={messageFilterActive ? '#FBBF24' : '#FFFFFF'}
-        />
-      </TouchableOpacity>
-      <TouchableOpacity onPress={() => setShowMsgSearch(true)}>
-        <Ionicons name="search-outline" size={20} color="#FFFFFF" />
-      </TouchableOpacity>
       <TouchableOpacity
-        onPress={() => setShowTaskChecklist(true)}
-        accessibilityLabel="Checklist công việc"
+        onPress={() => setShowChatToolsMenu(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Tiện ích chat"
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Ionicons name="checkbox-outline" size={20} color="#FFFFFF" />
+        <Ionicons name="ellipsis-vertical" size={22} color="#FFFFFF" />
       </TouchableOpacity>
-      <TouchableOpacity onPress={() => setShowAiAdvanced(true)} accessibilityLabel="Trợ lý báo cáo AI">
-        <Ionicons name="sparkles-outline" size={20} color="#FFFFFF" />
-      </TouchableOpacity>
-      {isGroup && (
-        <TouchableOpacity onPress={handleOpenGroupSettings}>
-          <Ionicons name="settings-outline" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
     </View>
   );
 
@@ -2555,6 +2656,7 @@ export default function ChatScreen() {
                     void handleScrollToMessage(firstPinnedMessageId);
                   }
                 }}
+                onLongPress={() => setShowGroupBoard(true)}
                 disabled={firstPinnedMessageId == null}
                 accessibilityRole="button"
                 accessibilityLabel="Xem tin nhắn đã ghim"
@@ -2604,7 +2706,7 @@ export default function ChatScreen() {
                     borderColor: isDark ? '#475569' : '#CBD5E1',
                     backgroundColor: isDark ? '#0F172A' : '#F8FAFC',
                   }}
-                  onPress={() => setShowPinnedList(true)}
+                  onPress={() => setShowGroupBoard(true)}
                   accessibilityRole="button"
                   accessibilityLabel={`${pinnedMessages.length - 1} tin ghim khác`}
                 >
@@ -2654,7 +2756,7 @@ export default function ChatScreen() {
             maxToRenderPerBatch={10}
             updateCellsBatchingPeriod={50}
             initialNumToRender={14}
-            removeClippedSubviews={Platform.OS === 'android'}
+            removeClippedSubviews={false}
             contentContainerStyle={styles.messageList}
             onRefresh={handleRefresh}
             refreshing={isRefreshing}
@@ -2944,6 +3046,18 @@ export default function ChatScreen() {
                   <Ionicons name="create-outline" size={24} color="#FFF" />
                 </TouchableOpacity>
               ) : null}
+              <TouchableOpacity
+                onPress={() => void handleDownloadViewerImage()}
+                style={styles.imagePreviewToolBtn}
+                accessibilityLabel="Tải ảnh"
+                disabled={isDownloadingImage}
+              >
+                {isDownloadingImage ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Ionicons name="download-outline" size={24} color="#FFF" />
+                )}
+              </TouchableOpacity>
             </View>
             <Text style={styles.imagePreviewHint}>
               Vuốt ngang giữa các ảnh • Chụm để phóng to • Hai ngón để di chuyển khi đã phóng to
@@ -3066,26 +3180,40 @@ export default function ChatScreen() {
               ) : null;
             })()}
 
-            {/* Pin */}
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={async () => {
-                const msgId = Number(menuTarget?.id);
-                if (msgId && conversationId > 0) {
+            {/* Pin / Unpin (nhóm) */}
+            {isGroup ? (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={async () => {
+                  const msgId = Number(menuTarget?.id);
+                  if (!msgId || conversationId <= 0) {
+                    setMenuTarget(null);
+                    return;
+                  }
+                  const isPinned = pinnedMessageIds.has(msgId);
                   try {
-                    await chatApi.pinMessage(conversationId, msgId);
-                    Alert.alert('✅', 'Đã ghim tin nhắn');
+                    if (isPinned) {
+                      await chatApi.unpinMessage(conversationId, msgId);
+                      Alert.alert('✅', 'Đã bỏ ghim tin nhắn');
+                    } else {
+                      await chatApi.pinMessage(conversationId, msgId);
+                      Alert.alert('✅', 'Đã ghim tin nhắn');
+                    }
                     void refreshPinnedMessages();
                   } catch {
-                    Alert.alert('Lỗi', 'Không thể ghim tin nhắn');
+                    Alert.alert('Lỗi', isPinned ? 'Không thể bỏ ghim tin nhắn' : 'Không thể ghim tin nhắn');
                   }
-                }
-                setMenuTarget(null);
-              }}
-            >
-              <Text style={styles.menuItemIcon}>📌</Text>
-              <Text style={styles.menuItemText}>Ghim tin nhắn</Text>
-            </TouchableOpacity>
+                  setMenuTarget(null);
+                }}
+              >
+                <Text style={styles.menuItemIcon}>📌</Text>
+                <Text style={styles.menuItemText}>
+                  {pinnedMessageIds.has(Number(menuTarget?.id))
+                    ? 'Bỏ ghim tin nhắn'
+                    : 'Ghim tin nhắn'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
 
             {(() => {
               const senderId = menuTarget?.sender_id || menuTarget?.senderId || menuTarget?.sender?.id;
@@ -3745,6 +3873,160 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </Modal>
 
+      <Modal
+        visible={showChatToolsMenu}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowChatToolsMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowChatToolsMenu(false)}
+        >
+          <View style={styles.menuSheet}>
+            <Text
+              style={{
+                fontSize: 15,
+                fontWeight: '800',
+                color: isDark ? '#F8FAFC' : '#111827',
+                marginBottom: 4,
+                paddingHorizontal: 4,
+              }}
+            >
+              Tiện ích chat
+            </Text>
+
+            {presentationExtras.cloudTabDocumentsNav ? (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowChatToolsMenu(false);
+                  presentationExtras.cloudTabDocumentsNav?.onOpenDocuments();
+                }}
+              >
+                <Ionicons
+                  name="folder-open-outline"
+                  size={20}
+                  color={isDark ? '#F8FAFC' : '#1E3A8A'}
+                  style={{ width: 30, textAlign: 'center' }}
+                />
+                <Text style={styles.menuItemText}>Tài liệu của tôi</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setShowChatToolsMenu(false);
+                setShowMessageFilter(true);
+              }}
+            >
+              <Ionicons
+                name="funnel-outline"
+                size={20}
+                color={messageFilterActive ? '#FBBF24' : isDark ? '#F8FAFC' : '#1E3A8A'}
+                style={{ width: 30, textAlign: 'center' }}
+              />
+              <Text style={[styles.menuItemText, messageFilterActive ? { color: '#D97706' } : null]}>
+                Lọc tin nhắn
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setShowChatToolsMenu(false);
+                setShowMsgSearch(true);
+              }}
+            >
+              <Ionicons
+                name="search-outline"
+                size={20}
+                color={isDark ? '#F8FAFC' : '#1E3A8A'}
+                style={{ width: 30, textAlign: 'center' }}
+              />
+              <Text style={styles.menuItemText}>Tìm kiếm tin nhắn</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setShowChatToolsMenu(false);
+                setShowTaskChecklist(true);
+              }}
+            >
+              <Ionicons
+                name="checkbox-outline"
+                size={20}
+                color={isDark ? '#F8FAFC' : '#1E3A8A'}
+                style={{ width: 30, textAlign: 'center' }}
+              />
+              <Text style={styles.menuItemText}>Checklist công việc</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setShowChatToolsMenu(false);
+                setShowAiAdvanced(true);
+              }}
+            >
+              <Ionicons
+                name="sparkles-outline"
+                size={20}
+                color={isDark ? '#F8FAFC' : '#1E3A8A'}
+                style={{ width: 30, textAlign: 'center' }}
+              />
+              <Text style={styles.menuItemText}>Trợ lý báo cáo AI</Text>
+            </TouchableOpacity>
+
+            {isGroup ? (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowChatToolsMenu(false);
+                  setShowGroupBoard(true);
+                }}
+              >
+                <Ionicons
+                  name="clipboard-outline"
+                  size={20}
+                  color={isDark ? '#F8FAFC' : '#1E3A8A'}
+                  style={{ width: 30, textAlign: 'center' }}
+                />
+                <Text style={styles.menuItemText}>Bảng nhóm</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {isGroup ? (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowChatToolsMenu(false);
+                  handleOpenGroupSettings();
+                }}
+              >
+                <Ionicons
+                  name="settings-outline"
+                  size={20}
+                  color={isDark ? '#F8FAFC' : '#1E3A8A'}
+                  style={{ width: 30, textAlign: 'center' }}
+                />
+                <Text style={styles.menuItemText}>Cài đặt nhóm</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <View style={styles.menuDivider} />
+
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowChatToolsMenu(false)}>
+              <Text style={styles.menuItemIcon}>✕</Text>
+              <Text style={[styles.menuItemText, { color: '#9CA3AF' }]}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <ChatMessageFilterModal
         visible={showMessageFilter}
         members={filterModalMembers}
@@ -3767,103 +4049,22 @@ export default function ChatScreen() {
         onClose={() => setShowMessageFilter(false)}
       />
 
-      <Modal
-        visible={showPinnedList}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowPinnedList(false)}
-      >
-        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-          <Pressable
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.45)' }]}
-            onPress={() => setShowPinnedList(false)}
-          />
-          <View
-            style={{
-              backgroundColor: isDark ? '#121B2A' : '#FFFFFF',
-              borderTopLeftRadius: 16,
-              borderTopRightRadius: 16,
-              paddingHorizontal: 16,
-              paddingTop: 12,
-              paddingBottom: 20,
-              maxHeight: screenHeight * 0.55,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 8,
-                paddingBottom: 10,
-                borderBottomWidth: StyleSheet.hairlineWidth,
-                borderBottomColor: isDark ? '#334155' : '#E5E7EB',
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 17,
-                  fontWeight: '800',
-                  color: isDark ? '#F8FAFC' : '#111827',
-                }}
-              >
-                Tin đã ghim
-              </Text>
-              <TouchableOpacity onPress={() => setShowPinnedList(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                <Text style={{ fontSize: 20, color: isDark ? '#94A3B8' : '#64748B' }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={pinnedMessages}
-              keyExtractor={(pin) => String(pin.message.id)}
-              style={{ flexGrow: 0 }}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item: pin }) => {
-                const sender =
-                  pin.message?.sender?.fullName ||
-                  pin.message?.sender?.username ||
-                  '—';
-                const body =
-                  String(pin.message?.body || '').trim() || 'Hình ảnh / file đính kèm';
-                return (
-                  <TouchableOpacity
-                    style={{
-                      paddingVertical: 12,
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                      borderBottomColor: isDark ? '#1E293B' : '#F1F5F9',
-                    }}
-                    onPress={() => {
-                      setShowPinnedList(false);
-                      void handleScrollToMessage(Number(pin.message.id));
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        fontWeight: '700',
-                        color: isDark ? '#E2E8F0' : '#1E293B',
-                      }}
-                    >
-                      {sender}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        color: isDark ? '#94A3B8' : '#64748B',
-                        marginTop: 4,
-                        lineHeight: 18,
-                      }}
-                      numberOfLines={4}
-                    >
-                      {body}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          </View>
-        </View>
-      </Modal>
+      <ChatGroupBoardModal
+        visible={showGroupBoard}
+        pins={pinnedMessages}
+        conversationId={conversationId}
+        conversationName={chatTitle}
+        members={filterModalMembers}
+        currentUserId={currentUserId}
+        isDark={isDark}
+        onClose={() => setShowGroupBoard(false)}
+        onOpenMessage={(messageId) => {
+          setShowGroupBoard(false);
+          void handleScrollToMessage(messageId);
+        }}
+        onUnpin={(messageId) => void handleUnpinMessage(messageId)}
+        onRefreshPins={() => void refreshPinnedMessages()}
+      />
 
       <ChatReadReceiptsModal
         visible={showReadReceipts}

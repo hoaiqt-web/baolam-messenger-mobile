@@ -13,6 +13,10 @@ import {
   useMessagesQuery,
   usePinnedMessagesQuery,
 } from '@/features/chat/queries';
+import {
+  resolveNotificationConversationContext,
+  shouldNotifyForGroupMessage,
+} from '@/features/chat/groupNotificationPolicy';
 import { useChatUiStore } from '@/features/chat/chatUiStore';
 import type {
   ChatConversation,
@@ -31,6 +35,7 @@ import {
   reconnectReverbClient,
   subscribeConversationMessages,
   subscribeUserInboxMessages,
+  type ReverbMessageEventPayload,
 } from '@/services/realtime/reverbClient';
 import {
   getBrowserNotificationPermission,
@@ -43,9 +48,15 @@ import {
   type BrowserNotificationPermission,
 } from '@/services/notifications/browserNotifications';
 import { env } from '@/shared/config/env';
+import { getTaskVerificationPreview } from '@/features/chat/taskVerificationParsers';
+import { getBugOutstandingDigestPreview } from '@/features/chat/bugOutstandingDigestParsers';
 import { normalizeReplyAttachmentsFromApi } from '@/widgets/chat-layout/chatLayoutHelpers';
 function conversationListPreviewBody(message: ChatMessage): string {
   const trimmed = (message.body ?? '').trim();
+  const digestPreview = getBugOutstandingDigestPreview(trimmed);
+  if (digestPreview) return digestPreview;
+  const verificationPreview = getTaskVerificationPreview(trimmed);
+  if (verificationPreview) return verificationPreview;
   if (trimmed) return trimmed;
   if ((message.attachments?.length ?? 0) > 0) return 'Hình ảnh';
   if (message.forwardedFrom) {
@@ -136,6 +147,7 @@ function normalizeConversation(raw: ChatConversation): ChatConversation {
     ...raw,
     id: Number(raw.id),
     hasUnread: Boolean(raw.hasUnread),
+    hasUnreadMention: Boolean(raw.hasUnreadMention),
     participants: (raw.participants ?? []).map((participant) => ({
       ...participant,
       id: Number(participant.id),
@@ -598,7 +610,11 @@ export function useChatRoomController(): UseChatRoomState {
         (prev) => ({
           conversations: (prev?.conversations ?? []).map((conversation) =>
             conversation.id === conversationId
-              ? { ...conversation, hasUnread: result.hasUnread }
+              ? {
+                  ...conversation,
+                  hasUnread: result.hasUnread,
+                  hasUnreadMention: result.hasUnreadMention ?? false,
+                }
               : conversation,
           ),
         }),
@@ -929,6 +945,7 @@ export function useChatRoomController(): UseChatRoomState {
                     : {
                         ...conversation,
                         hasUnread: false,
+                        hasUnreadMention: false,
                         latestMessage: {
                           id: normalizedMessage.id,
                           body: conversationListPreviewBody(normalizedMessage),
@@ -1076,13 +1093,46 @@ export function useChatRoomController(): UseChatRoomState {
             };
           }
         );
-      }
+      },
+      undefined,
+      ({ message }) => {
+        const normalizedMessage = normalizeMessage(message as ChatMessage);
+
+        updateMessageAcrossLoadedPages(
+          activeConversationId,
+          normalizedMessage.id,
+          (item) => ({
+            ...item,
+            ...normalizedMessage,
+            status: item.status ?? 'sent',
+          }),
+        );
+
+        queryClient.setQueryData<{ conversations: ChatConversation[] }>(
+          ['chat', 'conversations'],
+          (prev) => ({
+            conversations: (prev?.conversations ?? []).map((conversation) =>
+              conversation.id !== activeConversationId ||
+              conversation.latestMessage?.id !== normalizedMessage.id
+                ? conversation
+                : {
+                    ...conversation,
+                    latestMessage: {
+                      ...conversation.latestMessage!,
+                      body: conversationListPreviewBody(normalizedMessage),
+                    },
+                  },
+            ),
+          }),
+        );
+      },
     );
   }, [
     activeConversationId,
     compareMessageOrder,
     normalizeMessage,
     queryClient,
+    updateMessageAcrossLoadedPages,
   ]);
 
   useEffect(() => {
@@ -1092,7 +1142,7 @@ export function useChatRoomController(): UseChatRoomState {
 
     return subscribeUserInboxMessages(
       currentUser.id,
-      ({ message }) => {
+      ({ message, conversation: socketConversation }: ReverbMessageEventPayload) => {
         const normalizedSocketMessage = normalizeMessage(
           message as ChatMessage,
         );
@@ -1136,6 +1186,10 @@ export function useChatRoomController(): UseChatRoomState {
               return prev;
             }
 
+            const messageHasMentionToMe = (normalizedSocketMessage.mentions ?? []).some(
+              (m) => Number(m.id) === Number(currentUser.id)
+            );
+
             const updatedConversation: ChatConversation = {
               ...existingConversation,
               hasUnread: isDuplicateLatest
@@ -1143,6 +1197,11 @@ export function useChatRoomController(): UseChatRoomState {
                 : isActive
                   ? false
                   : fromOther,
+              hasUnreadMention: isDuplicateLatest
+                ? existingConversation.hasUnreadMention
+                : isActive
+                  ? false
+                  : existingConversation.hasUnreadMention || (fromOther && messageHasMentionToMe),
               latestMessage: {
                 id: incomingMessageId,
                 body: conversationListPreviewBody(normalizedSocketMessage),
@@ -1192,8 +1251,17 @@ export function useChatRoomController(): UseChatRoomState {
         const isMentioned = normalizedSocketMessage.mentions?.some(
           (m) => Number(m.id) === Number(currentUser.id)
         );
-        const isGroup = targetConversationType === 'group';
-        const satisfiesPolicy = !isGroup || isMentioned;
+        const convContext = resolveNotificationConversationContext(
+          socketConversation,
+          targetConversationType,
+          targetConversationName,
+        );
+        const satisfiesPolicy = shouldNotifyForGroupMessage({
+          isGroup: convContext.isGroup,
+          isMentioned: Boolean(isMentioned),
+          conversationName: convContext.name,
+          messageBody: normalizedSocketMessage.body ?? '',
+        });
 
         if (debugEnabled) {
           console.info('chat_notification_trace', {
@@ -1204,7 +1272,9 @@ export function useChatRoomController(): UseChatRoomState {
             fromOther,
             isFocusedConversation,
             notificationsEnabled: notificationsEnabledNow,
-            isGroup,
+            isGroup: convContext.isGroup,
+            conversationType: convContext.type,
+            conversationName: convContext.name,
             isMentioned,
             satisfiesPolicy,
             shouldNotify,
@@ -1242,11 +1312,10 @@ export function useChatRoomController(): UseChatRoomState {
             playNotificationSound();
           }
 
-          const title =
-            targetConversationType === 'direct'
+          const title = convContext.isDirect
               ? normalizedSocketMessage.sender.fullName ||
                 normalizedSocketMessage.sender.username
-              : targetConversationName ||
+              : convContext.name ||
                 normalizedSocketMessage.sender.fullName ||
                 normalizedSocketMessage.sender.username;
           const senderLabel =
@@ -1258,8 +1327,7 @@ export function useChatRoomController(): UseChatRoomState {
             ((normalizedSocketMessage.attachments?.length ?? 0) > 0
               ? 'Hình ảnh'
               : 'Tin nhắn mới');
-          const body =
-            targetConversationType === 'group'
+          const body = convContext.isGroup
               ? `${senderLabel}: ${messagePreview}`
               : messagePreview;
           const notifyResult = notifyBrowserMessage({
@@ -1563,6 +1631,7 @@ export function useChatRoomController(): UseChatRoomState {
                 : {
                     ...conversation,
                     hasUnread: false,
+                    hasUnreadMention: false,
                     latestMessage: {
                       id: response.message.id,
                       body: conversationListPreviewBody(
@@ -1618,7 +1687,7 @@ export function useChatRoomController(): UseChatRoomState {
         (prev) => ({
           conversations: (prev?.conversations ?? []).map((conversation) =>
             conversation.id === conversationId
-              ? { ...conversation, hasUnread: false }
+              ? { ...conversation, hasUnread: false, hasUnreadMention: false }
               : conversation,
           ),
         }),

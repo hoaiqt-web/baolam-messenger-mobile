@@ -17,8 +17,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { authApi } from '@/services/api/authApi';
 import { chatApi } from '@/services/api/chatApi';
-import { httpClient } from '@/services/api/httpClient';
+import { httpClient, setUnauthorizedHandler } from '@/services/api/httpClient';
 import { authStorage } from '@/features/auth/authStorage';
+import { pingAuthSession, restoreAuthSession } from '@/features/auth/sessionBootstrap';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import {
   getLastRealtimeInboundActivityAt,
@@ -39,6 +40,11 @@ import { isAxiosError } from 'axios';
 import { ChatDuplicateGroupModal } from '@/components/chat/ChatDuplicateGroupModal';
 import type { ChatConversation } from '@/Models/chat/types';
 import { useChatUiStore } from '@/features/chat/chatUiStore';
+import {
+  resolveNotificationConversationContext,
+  shouldNotifyForGroupMessage,
+} from '@/features/chat/groupNotificationPolicy';
+import { isPycvtWarehouseMessage } from '@/features/chat/pycvtParsers';
 
 // Color palette for avatars
 const AVATAR_COLORS = [
@@ -216,15 +222,19 @@ export default function HomeScreen() {
     };
   }, [isAuthenticated, currentUserId, chats]);
 
+  const handleLogoutRef = useRef<() => Promise<void>>(async () => undefined);
+
   useEffect(() => {
     const initApp = async () => {
-      await authStorage.init();
-      const token = authStorage.getToken();
-      if (token) {
+      const session = await restoreAuthSession();
+      if (session.authenticated) {
         setIsAuthenticated(true);
+        setCurrentUserId(session.userId);
         try {
-          const me = await authApi.me();
-          setCurrentUserId(Number(me.user?.id) || null);
+          if (session.userId == null) {
+            const me = await authApi.me();
+            setCurrentUserId(Number(me.user?.id) || null);
+          }
           await fetchChats();
           await registerForPushNotifications();
           await consumePendingChatNotificationNav(router);
@@ -232,9 +242,8 @@ export default function HomeScreen() {
             isAuthenticated: true,
           });
         } catch {
-          setCurrentUserId(null);
           await processLaunchNotificationResponse(router, {
-            isAuthenticated: false,
+            isAuthenticated: true,
           });
         }
       } else {
@@ -246,6 +255,23 @@ export default function HomeScreen() {
     };
     void initApp();
   }, [router]);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      void handleLogoutRef.current();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void pingAuthSession();
+      }
+    });
+    return () => sub.remove();
+  }, [isAuthenticated]);
 
   const fetchChats = async () => {
     setIsFetchingChats(true);
@@ -340,6 +366,8 @@ export default function HomeScreen() {
     setPassword('');
   };
 
+  handleLogoutRef.current = handleLogout;
+
   const scheduleRealtimeConversationRefresh = useCallback(() => {
     if (realtimeRefreshTimerRef.current) {
       return;
@@ -368,23 +396,43 @@ export default function HomeScreen() {
       }
 
       const conv = chatsRef.current.find((c: any) => Number(c.id) === cid);
-      const conversationType = conv?.type ?? 'direct';
+      const convContext = resolveNotificationConversationContext(
+        payload.conversation,
+        conv?.type,
+        typeof conv?.name === 'string' ? conv.name : '',
+      );
+
       const senderName =
         msg.sender?.fullName || msg.sender?.username || 'Người gửi';
 
       const conversationName =
-        typeof conv?.name === 'string' && conv.name.trim()
-          ? conv.name.trim()
-          : conversationType === 'direct'
-            ? senderName
-            : 'Nhóm';
+        convContext.name
+        || (convContext.isDirect ? senderName : 'Nhóm');
 
       const mentions = msg.mentions ?? [];
       const isMentioned = mentions.some((m) => Number(m.id) === Number(uid));
-      const isGroup = conversationType === 'group';
-      const muted = isGroup && !isMentioned;
-
       const rawBody = typeof msg.body === 'string' ? msg.body.trim() : '';
+
+      const shouldNotify = shouldNotifyForGroupMessage({
+        isGroup: convContext.isGroup,
+        isMentioned,
+        conversationName,
+        messageBody: rawBody,
+      });
+      if (!shouldNotify) {
+        return;
+      }
+
+      const isPycvtMessage = isPycvtWarehouseMessage(rawBody);
+      const pycvtDepartment = isPycvtMessage
+        ? (rawBody.match(/\*\*Trạng thái:\*\*\s*(.+)/)?.[1]
+            ?.replace(/\*\*/g, '')
+            .trim()
+          ?? rawBody.match(/\*\*Đã đến:\*\*\s*(.+)/)?.[1]
+            ?.replace(/\*\*/g, '')
+            .trim()
+          ?? 'Phòng ban xử lý')
+        : null;
       const bodyText =
         rawBody.length > 0
           ? rawBody.slice(0, 120)
@@ -392,18 +440,25 @@ export default function HomeScreen() {
             ? 'Hình ảnh'
             : 'Tin nhắn mới';
 
-      const title = isGroup ? conversationName : senderName;
-      const body = isGroup ? `${senderName}: ${bodyText}` : bodyText;
+      const title = isPycvtMessage
+        ? conversationName
+        : convContext.isGroup
+          ? conversationName
+          : senderName;
+      const body = isPycvtMessage
+        ? `${senderName} — YCVT đến ${pycvtDepartment}`
+        : convContext.isGroup
+          ? `${senderName}: ${bodyText}`
+          : bodyText;
 
       void presentLocalChatMessageNotification({
         conversationId: cid,
         conversationName,
-        conversationType,
+        conversationType: convContext.type,
         title,
         body,
         senderId: sid,
         messageId: Number(msg.id) || 0,
-        muted,
       });
     },
     [scheduleRealtimeConversationRefresh],
@@ -796,6 +851,11 @@ export default function HomeScreen() {
                   {senderPrefix}
                   {previewBody}
                 </Text>
+                {item.hasUnreadMention && (
+                  <View style={styles.mentionBadge}>
+                    <Text style={styles.mentionBadgeText}>@</Text>
+                  </View>
+                )}
                 {item.hasUnread && <View style={styles.unreadDot} />}
               </View>
             </View>
@@ -1409,6 +1469,23 @@ const getIndexStyles = (isDark: boolean) => {
     backgroundColor: '#EF4444',
     marginLeft: 6,
     flexShrink: 0,
+  },
+  mentionBadge: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#2563EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginLeft: 6,
+    flexShrink: 0,
+  },
+  mentionBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+    lineHeight: 11,
   },
   chatAvatarImage: {
     width: 42,

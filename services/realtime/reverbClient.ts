@@ -23,6 +23,12 @@ const pusherModule =
 const PusherCtor = resolvePusherConstructor(pusherModule);
 (globalThis as any).Pusher = PusherCtor;
 
+export type ReverbConversationBroadcastSummary = {
+  id: number;
+  type: string;
+  name: string;
+};
+
 export type ReverbMessageEventPayload = {
   message: {
     id: number;
@@ -74,6 +80,7 @@ export type ReverbMessageEventPayload = {
       fullName: string;
     };
   };
+  conversation?: ReverbConversationBroadcastSummary;
 };
 
 type ReverbConversationCreatedPayload = {
@@ -338,6 +345,7 @@ export function subscribeConversationMessages(
   onReactionUpdated?: (payload: ReverbMessageReactionUpdatedPayload) => void,
   onReadUpdated?: (payload: ReverbConversationReadUpdatedPayload) => void,
   onTaskUpdated?: (payload: ReverbTaskUpdatedPayload) => void,
+  onMessageUpdated?: (payload: ReverbMessageEventPayload) => void,
 ): () => void {
   const echo = getEchoClient();
   if (!echo) {
@@ -351,6 +359,17 @@ export function subscribeConversationMessages(
     onMessage(payload);
   };
   channel.listen('.message.sent', onMessageWithHeartbeat);
+
+  let onMessageUpdatedWithHeartbeat:
+    | ((payload: ReverbMessageEventPayload) => void)
+    | undefined;
+  if (onMessageUpdated) {
+    onMessageUpdatedWithHeartbeat = (payload: ReverbMessageEventPayload) => {
+      markRealtimeInboundActivity();
+      onMessageUpdated(payload);
+    };
+    channel.listen('.message.updated', onMessageUpdatedWithHeartbeat);
+  }
 
   let onPinnedWithHeartbeat:
     | ((payload: ReverbMessagePinnedPayload) => void)
@@ -419,6 +438,9 @@ export function subscribeConversationMessages(
 
   return () => {
     channel.stopListening('.message.sent', onMessageWithHeartbeat);
+    if (onMessageUpdatedWithHeartbeat) {
+      channel.stopListening('.message.updated', onMessageUpdatedWithHeartbeat);
+    }
     if (onPinnedWithHeartbeat) {
       channel.stopListening('.message.pinned', onPinnedWithHeartbeat);
     }
