@@ -24,12 +24,12 @@ export const getChatStyles = (isDark: boolean) => {
     messageRowMine: { justifyContent: 'flex-end' },
     messageRowOther: { justifyContent: 'flex-start' },
 
-    avatarCol: { width: 36, marginRight: 6, justifyContent: 'flex-end' },
-    avatarSmall: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-    avatarSmallText: { fontSize: 14, fontWeight: 'bold', color: '#FFF' },
-    avatarSpacer: { width: 32, height: 32 },
+    avatarCol: { width: 26, marginRight: 4, justifyContent: 'flex-end' },
+    avatarSmall: { width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+    avatarSmallText: { fontSize: 11, fontWeight: 'bold', color: '#FFF' },
+    avatarSpacer: { width: 24, height: 24 },
 
-    bubbleCol: { maxWidth: '75%' },
+    bubbleCol: { maxWidth: '78%' },
     bubbleColMine: { alignItems: 'flex-end' },
 
     /** Bọc trích dẫn trả lời + bubble + hàng Trả lời để nhìn thấy rõ cùng một nhóm */
@@ -46,14 +46,14 @@ export const getChatStyles = (isDark: boolean) => {
       alignSelf: 'flex-end',
     },
     messageSideAction: {
-      width: 32,
+      width: 26,
       alignSelf: 'stretch',
       justifyContent: 'center',
       alignItems: 'center',
       paddingHorizontal: 2,
     },
 
-    senderLabel: { fontSize: 12, fontWeight: '600', marginBottom: 2, marginLeft: 4, color: textSecondary },
+    senderLabel: { fontSize: 11, fontWeight: '600', marginBottom: 2, marginLeft: 2, color: textSecondary },
 
     bubble: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 18 },
     bubbleWrap: { position: 'relative' },
@@ -141,6 +141,15 @@ export const getChatStyles = (isDark: boolean) => {
     replyPreviewClose: { padding: 4, marginLeft: 8 },
 
     bubbleRecalled: { backgroundColor: 'transparent', borderWidth: 1, borderColor: border, borderStyle: 'dashed' },
+    /** ERP structured cards render their own surface — skip default bubble chrome */
+    bubbleStructured: {
+      backgroundColor: 'transparent',
+      paddingVertical: 2,
+      paddingHorizontal: 0,
+      shadowOpacity: 0,
+      elevation: 0,
+    },
+    bubbleColStructured: { maxWidth: '96%', width: '96%', minWidth: 0 },
     recalledText: { fontSize: 13, color: textSecondary, fontStyle: 'italic' },
 
     reactionsFloating: {

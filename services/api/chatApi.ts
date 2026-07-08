@@ -542,6 +542,55 @@ export const chatApi = {
     return data;
   },
 
+  async getUserWorkStatuses(names: string[]): Promise<{ statuses?: Array<{ user_id: number; full_name?: string; description?: string; updated_at?: string }> }> {
+    const { data } = await httpClient.post("/user-work-statuses", { names });
+    return data;
+  },
+
+  async updateUserWorkStatus(userId: number, description: string): Promise<unknown> {
+    const { data } = await httpClient.post("/user-work-statuses/update", {
+      user_id: userId,
+      description,
+    });
+    return data;
+  },
+
+  async getUsersTasks(names: string[]): Promise<{ tasks?: Array<Record<string, unknown>> }> {
+    const { data } = await httpClient.post("/ai/users-tasks", { names });
+    return data;
+  },
+
+  async getColorSampleBoard(): Promise<{
+    success?: boolean;
+    summary?: {
+      total: number;
+      handoff: number;
+      approved: number;
+      draft: number;
+      overdue: number;
+      projects_qaqc_pending?: number;
+      projects_ptk_pending_approve?: number;
+    };
+    by_project?: Array<{
+      project_code: string;
+      project_name?: string;
+      handoff_count: number;
+      approved_count: number;
+      overdue_count: number;
+      palettes: Array<{ id: number; palette_code: string; ptk_status: string | null; days_since_handoff: number }>;
+    }>;
+  }> {
+    const { data } = await httpClient.get("/internal/design-room/color-sample-board");
+    return data;
+  },
+
+  async markColorSampleDone(taskId: number, notesDone = ""): Promise<unknown> {
+    const { data } = await httpClient.post(`/tasks/${taskId}/color-sample-done`, {
+      notes_done: notesDone,
+    });
+    return data;
+  },
+
   async createManualTask(
     conversationId: number,
     payload: {

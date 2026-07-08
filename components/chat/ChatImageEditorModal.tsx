@@ -93,12 +93,21 @@ export function ChatImageEditorModal({
     setSending(true);
     try {
       const flatUri = await skiaRef.current?.exportComposite();
-      const uploadUri = flatUri ?? workingUri;
+      let uploadUri = flatUri ?? workingUri;
+
+      const { manipulateAsync, SaveFormat } = await import('expo-image-manipulator');
+      const compressed = await manipulateAsync(
+        uploadUri,
+        [{ resize: { width: 2048 } }],
+        { compress: 0.85, format: SaveFormat.JPEG },
+      );
+      uploadUri = compressed.uri;
+
       const formData = new FormData();
       formData.append('file', {
         uri: uploadUri,
-        name: `edited-${Date.now()}.png`,
-        type: 'image/png',
+        name: `edited-${Date.now()}.jpg`,
+        type: 'image/jpeg',
       } as any);
       const { data } = await httpClient.post(
         `/conversations/${conversationId}/attachments/direct`,
@@ -108,7 +117,16 @@ export function ChatImageEditorModal({
       onSendSuccess(data);
       onClose();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Không thể gửi ảnh.';
+      const axiosStatus =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { status?: number } }).response?.status
+          : undefined;
+      const msg =
+        axiosStatus === 413
+          ? 'Ảnh sau chỉnh sửa quá lớn để tải lên. Vui lòng thử cắt nhỏ ảnh.'
+          : e instanceof Error
+            ? e.message
+            : 'Không thể gửi ảnh.';
       Alert.alert('Lỗi', msg);
     } finally {
       setSending(false);

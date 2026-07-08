@@ -2,6 +2,7 @@ import axios from "axios";
 import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 
 import { authStorage } from "@/features/auth/authStorage";
+import { refreshAccessTokenPair, type RefreshAccessTokenResult } from "@/features/auth/sessionBootstrap";
 import { getReverbSocketId } from "@/services/realtime/reverbClient";
 import { env } from "@/shared/config/env";
 
@@ -56,38 +57,9 @@ export const httpClient = axios.create({
   },
 });
 
-const refreshClient = axios.create({
-  baseURL: env.apiBaseUrl,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
-
 type RetryableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 
-let refreshRequest: Promise<string | null> | null = null;
-
-async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = authStorage.getRefreshToken();
-  if (! refreshToken) {
-    return null;
-  }
-
-  try {
-    const { data } = await refreshClient.post<{
-      access_token: string;
-      refresh_token: string;
-    }>("/auth/refresh", { refresh_token: refreshToken });
-
-    authStorage.setTokens(data.access_token, data.refresh_token);
-
-    return data.access_token;
-  } catch {
-    authStorage.clearToken();
-
-    return null;
-  }
-}
+let refreshRequest: Promise<RefreshAccessTokenResult> | null = null;
 
 httpClient.interceptors.request.use((config) => {
   const requestConfig = config as TimingRequestConfig;
@@ -154,16 +126,22 @@ httpClient.interceptors.response.use(
 
     if (error.response?.status === 401 && originalRequest && ! originalRequest._retry) {
       originalRequest._retry = true;
-      refreshRequest ??= refreshAccessToken().finally(() => {
+      refreshRequest ??= refreshAccessTokenPair().finally(() => {
         refreshRequest = null;
       });
 
-      const newAccessToken = await refreshRequest;
-      if (newAccessToken) {
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+      const refreshResult = await refreshRequest;
+      if (refreshResult.ok) {
+        originalRequest.headers.Authorization = `Bearer ${refreshResult.accessToken}`;
 
         return httpClient(originalRequest);
       }
+
+      if (refreshResult.sessionExpired) {
+        onUnauthorized?.();
+      }
+
+      return Promise.reject(error);
     }
 
     if (error?.response?.status === 401) {

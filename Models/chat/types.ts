@@ -72,6 +72,29 @@ export type ChatMessage = {
   reactions_summary?: Record<string, number>;
   user_reaction?: string | null;
   read_by?: number[]; // Added to track who read this message in current session
+  generated_tasks?: ChatGeneratedTask[];
+  bug_report_lifecycle?: BugReportLifecycle | null;
+};
+
+export type BugReportLifecycle = {
+  task_id: number;
+  reporter_user_id: number;
+  accepted_by_user_id: number | null;
+  accepted_by_name: string | null;
+  accepted_at: string | null;
+  verification_requested_at: string | null;
+  verified_at: string | null;
+  rejected_at?: string | null;
+  rejection_reason?: string | null;
+  status?: string | null;
+};
+
+export type ChatGeneratedTask = {
+  id: number;
+  status: string;
+  source_module?: string;
+  source_ref_id?: number | string | null;
+  audit_trail?: Record<string, unknown> | { metadata?: Record<string, unknown> };
 };
 
 export type MessageReactionDetail = {
@@ -122,6 +145,7 @@ export type ChatConversation = {
   avatarUrl?: string | null;
   participants: ChatParticipantSummary[];
   hasUnread: boolean;
+  hasUnreadMention: boolean;
   latestMessage: Pick<ChatMessage, "id" | "body" | "sentAt"> & {
     sender: Pick<ChatUserSummary, "id" | "username" | "fullName" | "avatarUrl">;
   } | null;
@@ -130,6 +154,7 @@ export type ChatConversation = {
 
 export type MarkConversationReadResponse = {
   hasUnread: boolean;
+  hasUnreadMention?: boolean;
 };
 
 export type ConversationsResponse = {
