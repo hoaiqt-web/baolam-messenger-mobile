@@ -500,7 +500,7 @@ export const chatApi = {
   async transitionTask(
     taskId: number,
     action: string,
-    extra?: { assigned_to_user_id?: number },
+    extra?: { assigned_to_user_id?: number; line_idx?: number; reason?: string },
   ): Promise<{
     success: boolean;
     task?: unknown;

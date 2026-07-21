@@ -116,10 +116,14 @@ export function TaskChecklistModal({
     }
   }, [visible, loadTasks, remoteRefreshTick]);
 
-  const runTransition = async (taskId: number, action: string) => {
+  const runTransition = async (
+    taskId: number,
+    action: string,
+    extra?: { reason?: string },
+  ) => {
     setActionId(taskId);
     try {
-      const result = await chatApi.transitionTask(taskId, action);
+      const result = await chatApi.transitionTask(taskId, action, extra);
       if (result.success) {
         await loadTasks();
       } else {
@@ -218,6 +222,34 @@ export function TaskChecklistModal({
         text: 'Từ chối công việc',
         style: 'destructive',
         onPress: () => {
+          if (task.source_module === 'erp_pycvt_qaqc_approval') {
+            Alert.prompt?.(
+              'Từ chối PYCVT',
+              'Nhập lý do từ chối (tối thiểu 3 ký tự)',
+              [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                  text: 'Từ chối',
+                  style: 'destructive',
+                  onPress: (reason?: string) => {
+                    const trimmed = String(reason || '').trim();
+                    if (trimmed.length < 3) {
+                      Alert.alert('Lỗi', 'Vui lòng nhập lý do từ chối (tối thiểu 3 ký tự).');
+                      return;
+                    }
+                    void runTransition(task.id, 'REJECT', { reason: trimmed });
+                  },
+                },
+              ],
+            );
+            if (typeof Alert.prompt !== 'function') {
+              Alert.alert(
+                'Từ chối PYCVT',
+                'Vui lòng từ chối phiếu PYCVT trên ERP/Messenger web và nhập lý do từ chối.',
+              );
+            }
+            return;
+          }
           Alert.alert(
             'Xác nhận',
             'Từ chối công việc này?',
