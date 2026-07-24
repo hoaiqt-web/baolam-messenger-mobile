@@ -39,6 +39,7 @@ export interface CrossDeptMaterialMeta {
   proposer_dept?: string;
   material_name?: string;
   quantity_label?: string;
+  category?: string;
   reason?: string;
   rejection_reason?: string;
   rejected_by?: string;
@@ -247,6 +248,9 @@ export function CrossDeptMaterialMessageCard({ body, isMine, isDark }: Props) {
             <Text style={[styles.materialName, { color: palette.text }]}>{meta.material_name}</Text>
             {meta.quantity_label ? (
               <Text style={[styles.materialQty, { color: '#fbbf24' }]}>{meta.quantity_label}</Text>
+            ) : null}
+            {meta.category ? (
+              <Text style={[styles.materialQty, { color: '#67e8f9' }]}>Danh mục: {meta.category}</Text>
             ) : null}
           </View>
         ) : null}
