@@ -1177,6 +1177,9 @@ export default function ChatScreen() {
   const [galleryImages, setGalleryImages] = useState<any[]>([]);
   const [showFileList, setShowFileList] = useState(false);
   const [fileAttachments, setFileAttachments] = useState<any[]>([]);
+  const [fileListHasMore, setFileListHasMore] = useState(false);
+  const [fileListNextCursor, setFileListNextCursor] = useState<number | null>(null);
+  const [fileListLoadingMore, setFileListLoadingMore] = useState(false);
 
   const handleOpenGallery = async () => {
     try {
@@ -1192,12 +1195,32 @@ export default function ChatScreen() {
 
   const handleOpenFileList = async () => {
     try {
-      const { data } = await httpClient.get(`/conversations/${conversationId}/attachments`);
-      const allAttachments = data.attachments || data || [];
-      setFileAttachments(allAttachments.filter((a: any) => a.type !== 'image'));
+      const { data } = await httpClient.get(`/conversations/${conversationId}/attachments`, {
+        params: { type: 'file', limit: 40 },
+      });
+      setFileAttachments(data.attachments || []);
+      setFileListHasMore(Boolean(data.hasMore));
+      setFileListNextCursor(data.nextCursor ?? null);
       setShowFileList(true);
     } catch {
       Alert.alert('Lỗi', 'Không thể tải danh sách file');
+    }
+  };
+
+  const handleLoadMoreFiles = async () => {
+    if (!fileListHasMore || fileListLoadingMore || fileListNextCursor == null) return;
+    setFileListLoadingMore(true);
+    try {
+      const { data } = await httpClient.get(`/conversations/${conversationId}/attachments`, {
+        params: { type: 'file', limit: 40, beforeId: fileListNextCursor },
+      });
+      setFileAttachments((prev) => [...prev, ...(data.attachments || [])]);
+      setFileListHasMore(Boolean(data.hasMore));
+      setFileListNextCursor(data.nextCursor ?? null);
+    } catch {
+      Alert.alert('Lỗi', 'Không thể tải thêm file');
+    } finally {
+      setFileListLoadingMore(false);
     }
   };
 
@@ -3641,6 +3664,20 @@ export default function ChatScreen() {
                   </View>
                 </TouchableOpacity>
               )}
+              ListFooterComponent={
+                fileListHasMore ? (
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    disabled={fileListLoadingMore}
+                    onPress={() => void handleLoadMoreFiles()}
+                  >
+                    <Text style={styles.menuItemIcon}>⬇️</Text>
+                    <Text style={[styles.menuItemText, { color: '#1E3A8A' }]}>
+                      {fileListLoadingMore ? 'Đang tải...' : 'Xem thêm'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null
+              }
               ListEmptyComponent={
                 <Text style={{ textAlign: 'center', padding: 20, color: '#9CA3AF', fontSize: 13 }}>Chưa có file nào</Text>
               }

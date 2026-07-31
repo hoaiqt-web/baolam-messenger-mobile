@@ -174,3 +174,36 @@ export function useImageAttachmentGalleryInfiniteQuery({
     gcTime: IMAGE_GALLERY_GC_TIME_MS,
   });
 }
+
+/** Paginated non-media files (newest first). */
+export function useFileAttachmentGalleryInfiniteQuery({
+  conversationId,
+  enabled,
+}: {
+  conversationId: number | null;
+  enabled: boolean;
+}) {
+  return useInfiniteQuery({
+    queryKey: ['chat', 'fileAttachmentGallery', conversationId],
+    initialPageParam: undefined as number | undefined,
+    queryFn: async ({ pageParam }): Promise<ImageGalleryPageResponse> => {
+      if (!conversationId || conversationId < 0) {
+        return { attachments: [], hasMore: false, nextCursor: null };
+      }
+      return chatApi.getFileAttachmentGallery(conversationId, {
+        limit: IMAGE_GALLERY_PAGE_SIZE,
+        beforeId: pageParam ?? null,
+      });
+    },
+    getNextPageParam: (lastPage) => {
+      if (lastPage.hasMore && lastPage.nextCursor != null) {
+        return lastPage.nextCursor;
+      }
+      return undefined;
+    },
+    enabled: Boolean(enabled && conversationId && conversationId > 0),
+    retry: false,
+    staleTime: IMAGE_GALLERY_STALE_TIME_MS,
+    gcTime: IMAGE_GALLERY_GC_TIME_MS,
+  });
+}
