@@ -312,6 +312,19 @@ export const chatApi = {
     });
     return data;
   },
+  async getFileAttachmentGallery(
+    conversationId: number,
+    options?: { limit?: number; beforeId?: number | null },
+  ): Promise<ImageGalleryPageResponse> {
+    const { data } = await httpClient.get<ImageGalleryPageResponse>(`/conversations/${conversationId}/attachments`, {
+      params: {
+        type: "file",
+        limit: options?.limit ?? 40,
+        beforeId: options?.beforeId ?? undefined,
+      },
+    });
+    return data;
+  },
   async addGroupMembers(conversationId: number, userIds: number[]): Promise<{ conversation: import("@/Models/chat/types").ChatConversation }> {
     const { data } = await httpClient.post(`/conversations/${conversationId}/members`, { userIds });
     return data;

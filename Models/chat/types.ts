@@ -121,7 +121,7 @@ export type ChatAttachment = {
   url: string | null;
 };
 
-/** Response from `GET /conversations/:id/attachments?type=image&limit=…` (paginated gallery). */
+/** Response from `GET /conversations/:id/attachments?type=image|file&limit=…` (paginated gallery). */
 export type ImageGalleryPageResponse = {
   attachments: Array<
     ChatAttachment & {
