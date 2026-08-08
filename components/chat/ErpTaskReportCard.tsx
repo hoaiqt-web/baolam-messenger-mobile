@@ -58,9 +58,19 @@ function CardShell({
 
 function QlpxNewCard({ body, isMine, isDark, onImagePress }: Props) {
   const data = parseQlpxNewReport(body);
-  const palette = getErpMessengerCardPalette(isMine, 'cyan');
+  const isPaused =
+    body.includes('BÁO CÁO QLPX TẠM DỪNG') ||
+    body.includes('BÁO CÁO TẠM DỪNG') ||
+    /^8\s*-\s*\*\*Ghi chú\*\*:\s*Tạm dừng/im.test(body);
+  const palette = getErpMessengerCardPalette(isMine, isPaused ? 'amber' : 'cyan');
   return (
-    <CardShell icon="🏭" title="Báo cáo QLPX" isMine={isMine} isDark={isDark} variant="cyan">
+    <CardShell
+      icon={isPaused ? '⏸️' : '🏭'}
+      title={isPaused ? 'Báo cáo QLPX — Tạm dừng' : 'Báo cáo QLPX'}
+      isMine={isMine}
+      isDark={isDark}
+      variant={isPaused ? 'amber' : 'cyan'}
+    >
       <ErpCardField label="1 - Dự án" value={data.project} palette={palette} valueBold />
       {data.treeLines.length > 0 ? (
         <View style={[styles.treeBox, { borderColor: palette.tableBorder }]}>

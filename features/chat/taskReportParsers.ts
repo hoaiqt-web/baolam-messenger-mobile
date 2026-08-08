@@ -123,7 +123,7 @@ export type TaskReportKind =
 export function detectTaskReportKind(body: string): TaskReportKind | null {
   if (!isErpTaskReportBody(body)) return null;
   if (body.includes('BÁO CÁO KẾ HOẠCH NGÀY')) return 'qaqc_batch';
-  if (body.includes('BÁO CÁO QLPX MỚI')) return 'qlpx_new';
+  if (body.includes('BÁO CÁO QLPX MỚI') || body.includes('BÁO CÁO QLPX TẠM DỪNG')) return 'qlpx_new';
   if (body.includes('BÁO CÁO HOÀN THÀNH NHÀ MÁY')) return 'factory_completion';
   if (body.includes('BÁO CÁO TẠM DỪNG NHÀ MÁY')) return 'factory_pause';
   if (isPtkReportBody(body)) return 'ptk';
