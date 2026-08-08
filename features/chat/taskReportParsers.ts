@@ -138,12 +138,15 @@ export interface QlpxNewReportData {
   startDate: string;
   startTime: string;
   endTime: string;
+  plannedQty: string;
   actualQty: string;
+  sessionQty: string;
   materialsUsed: string;
   materialsPlanned: string;
   reportedBy: string;
   workers: string;
   notes: string;
+  timelineEntries: string[];
   evidenceLinks: string[];
 }
 
@@ -162,6 +165,21 @@ export function parseQlpxNewReport(body: string): QlpxNewReportData {
     }
   }
   const startDateLine = lines.find((l) => l.includes('4 - **Ngày bắt đầu**:')) || '';
+  const qtyLine = lines.find((l) => l.includes('5 - **')) || '';
+  const materialsLine = lines.find((l) => l.includes('6 - **Vật tư đã dùng')) || '';
+  const timelineStart = lines.findIndex((l) => l.includes('### Lịch sử báo cáo'));
+  const timelineEntries: string[] = [];
+  if (timelineStart !== -1) {
+    for (let i = timelineStart + 1; i < lines.length; i += 1) {
+      const raw = lines[i].replace('\r', '').trim();
+      if (!raw) continue;
+      if (raw.startsWith('•') || raw.startsWith('-') || raw.startsWith('*')) {
+        timelineEntries.push(raw.replace(/^[•\-*]\s*/, ''));
+        continue;
+      }
+      if (raw.startsWith('#') || raw.includes('📸') || raw.includes('**Có đính kèm')) break;
+    }
+  }
   return {
     project,
     treeLines,
@@ -170,13 +188,14 @@ export function parseQlpxNewReport(body: string): QlpxNewReportData {
     startDate: startDateLine.split('**Ngày bắt đầu**:')[1]?.split('|')[0]?.trim() || '',
     startTime: startDateLine.split('**Giờ bắt đầu**:')[1]?.split('|')[0]?.trim() || '',
     endTime: startDateLine.split('**Giờ kết thúc**:')[1]?.trim() || '',
-    actualQty: findLineValue(lines, '5 - **Khối lượng thực hiện**:', '**Khối lượng thực hiện**:'),
+    plannedQty: qtyLine.match(/\*\*Khối lượng kế hoạch\*\*:\s*([^|\n]+)/)?.[1]?.trim() || '',
+    actualQty:
+      qtyLine.match(/\*\*Khối lượng thực hiện(?:\s*\(lũy kế\))?\*\*:\s*([^|\n]+)/)?.[1]?.trim()
+      || findLineValue(lines, '5 - **Khối lượng thực hiện**:', '**Khối lượng thực hiện**:'),
+    sessionQty: qtyLine.match(/\*\*Lần này\*\*:\s*([^|\n]+)/)?.[1]?.trim() || '',
     materialsUsed:
-      (lines.find((l) => l.includes('6 - **Vật tư đã dùng**:')) || '')
-        .split('**Vật tư đã dùng**:')[1]?.split('|')[0]?.trim() || '',
-    materialsPlanned:
-      (lines.find((l) => l.includes('6 - **Vật tư đã dùng**:')) || '')
-        .split('**Vật tư theo kế hoạch**:')[1]?.trim() || '',
+      materialsLine.split(/\*\*Vật tư đã dùng(?:\s*\(lũy kế\))?\*\*:/)[1]?.split('|')[0]?.trim() || '',
+    materialsPlanned: materialsLine.split('**Vật tư theo kế hoạch**:')[1]?.trim() || '',
     reportedBy:
       (lines.find((l) => l.includes('7 - **Người thực hiện**:')) || '')
         .split('**Người thực hiện**:')[1]?.split('(')[0]?.trim() || '',
@@ -185,6 +204,7 @@ export function parseQlpxNewReport(body: string): QlpxNewReportData {
         .split('(Thợ:')[1]?.replace(')', '')?.trim() || '',
     ),
     notes: findLineValue(lines, '8 - **Ghi chú**:', '**Ghi chú**:'),
+    timelineEntries,
     evidenceLinks: parseEvidenceLinks(lines),
   };
 }

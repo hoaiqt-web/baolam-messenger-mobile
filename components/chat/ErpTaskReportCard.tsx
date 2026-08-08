@@ -98,10 +98,22 @@ function QlpxNewCard({ body, isMine, isDark, message, onImagePress }: Props) {
         <ErpCardField label="Giờ bắt đầu" value={data.startTime} palette={palette} />
         <ErpCardField label="Giờ kết thúc" value={data.endTime} palette={palette} />
       </View>
-      <ErpCardField label="5 - Khối lượng TH" value={data.actualQty} palette={palette} valueBold valueColor="#34d399" />
+      <ErpCardField
+        label="5 - Khối lượng"
+        value={[
+          data.plannedQty ? `KH: ${data.plannedQty}` : null,
+          data.actualQty ? `Lũy kế: ${data.actualQty}` : null,
+          data.sessionQty ? `Lần này: ${data.sessionQty}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+        palette={palette}
+        valueBold
+        valueColor="#34d399"
+      />
       <ErpGrid2
         palette={palette}
-        left={{ label: '6 - VT đã dùng', value: data.materialsUsed }}
+        left={{ label: '6 - VT đã dùng (lũy kế)', value: data.materialsUsed }}
         right={{ label: 'VT kế hoạch', value: data.materialsPlanned }}
       />
       <ErpCardField
@@ -110,6 +122,18 @@ function QlpxNewCard({ body, isMine, isDark, message, onImagePress }: Props) {
         palette={palette}
       />
       <ErpCardField label="8 - Ghi chú" value={data.notes} palette={palette} italic />
+      {data.timelineEntries.length > 0 ? (
+        <View style={[styles.treeBox, { borderColor: palette.tableBorder, marginTop: 4 }]}>
+          <Text style={[styles.sectionLabel, { color: palette.label }]}>
+            Lịch sử báo cáo ({data.timelineEntries.length})
+          </Text>
+          {data.timelineEntries.map((entry, idx) => (
+            <Text key={`${idx}-${entry.slice(0, 20)}`} style={{ color: palette.textMuted, fontSize: 12, marginTop: 4 }}>
+              • {entry}
+            </Text>
+          ))}
+        </View>
+      ) : null}
       <ErpEvidenceGrid links={evidenceLinks} palette={palette} columns={1} onImagePress={onImagePress} />
     </CardShell>
   );
