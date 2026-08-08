@@ -162,7 +162,15 @@ export function StructuredChatMessage({
     return <ErpStructuredMessage body={text} isMine={isMine} isDark={isDark} />;
   }
   if (isErpTaskReportBody(text)) {
-    return <ErpTaskReportCard body={text} isMine={isMine} isDark={isDark} onImagePress={onImagePress} />;
+    return (
+      <ErpTaskReportCard
+        body={text}
+        isMine={isMine}
+        isDark={isDark}
+        message={message}
+        onImagePress={onImagePress}
+      />
+    );
   }
   if (isTaskVerificationMessage(text)) {
     return <TaskVerificationMessageCard body={text} isMine={isMine} />;

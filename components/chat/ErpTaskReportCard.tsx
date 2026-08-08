@@ -21,6 +21,7 @@ type Props = {
   body: string;
   isMine: boolean;
   isDark: boolean;
+  message?: { attachments?: Array<{ id?: number | string; url?: string | null; mimeType?: string | null; originalName?: string | null }> } | null;
   onImagePress?: (attachment: any, url: string) => void;
 };
 
@@ -56,13 +57,17 @@ function CardShell({
   );
 }
 
-function QlpxNewCard({ body, isMine, isDark, onImagePress }: Props) {
+function QlpxNewCard({ body, isMine, isDark, message, onImagePress }: Props) {
   const data = parseQlpxNewReport(body);
   const isPaused =
     body.includes('BÁO CÁO QLPX TẠM DỪNG') ||
     body.includes('BÁO CÁO TẠM DỪNG') ||
     /^8\s*-\s*\*\*Ghi chú\*\*:\s*Tạm dừng/im.test(body);
   const palette = getErpMessengerCardPalette(isMine, isPaused ? 'amber' : 'cyan');
+  const attachmentLinks = (message?.attachments ?? [])
+    .map((att) => String(att.url ?? '').trim())
+    .filter((url) => /^https?:\/\//i.test(url));
+  const evidenceLinks = [...new Set([...(data.evidenceLinks ?? []), ...attachmentLinks])];
   return (
     <CardShell
       icon={isPaused ? '⏸️' : '🏭'}
@@ -105,7 +110,7 @@ function QlpxNewCard({ body, isMine, isDark, onImagePress }: Props) {
         palette={palette}
       />
       <ErpCardField label="8 - Ghi chú" value={data.notes} palette={palette} italic />
-      <ErpEvidenceGrid links={data.evidenceLinks} palette={palette} columns={1} onImagePress={onImagePress} />
+      <ErpEvidenceGrid links={evidenceLinks} palette={palette} columns={1} onImagePress={onImagePress} />
     </CardShell>
   );
 }
@@ -319,10 +324,20 @@ function PtkReportCard({ body, isMine, isDark, onImagePress }: Props) {
   );
 }
 
-export function ErpTaskReportCard({ body, isMine, isDark, onImagePress }: Props) {
+export function ErpTaskReportCard({ body, isMine, isDark, message, onImagePress }: Props) {
   const kind = detectTaskReportKind(body);
   if (!kind) return null;
-  if (kind === 'qlpx_new') return <QlpxNewCard body={body} isMine={isMine} isDark={isDark} onImagePress={onImagePress} />;
+  if (kind === 'qlpx_new') {
+    return (
+      <QlpxNewCard
+        body={body}
+        isMine={isMine}
+        isDark={isDark}
+        message={message}
+        onImagePress={onImagePress}
+      />
+    );
+  }
   if (kind === 'qaqc_batch') return <QaqcBatchCard body={body} isMine={isMine} isDark={isDark} onImagePress={onImagePress} />;
   if (kind === 'factory_completion' || kind === 'factory_pause') {
     return <FactoryCard body={body} isMine={isMine} isDark={isDark} onImagePress={onImagePress} />;
