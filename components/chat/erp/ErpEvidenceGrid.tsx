@@ -54,35 +54,18 @@ function EvidenceThumb({
         cachePolicy="memory-disk"
         onError={() => setFailed(true)}
       />
-      <View style={styles.overlay}>
-        <Text style={styles.overlayText}>Xem ảnh ›</Text>
-      </View>
     </TouchableOpacity>
   );
 }
 
 export function ErpEvidenceGrid({ links, palette, columns = 2, onImagePress }: Props) {
   if (!links.length) return null;
-  const width = columns === 2 ? '47%' : '100%';
   return (
     <View style={[styles.wrap, { borderTopColor: palette.innerBorder }]}>
       <Text style={[styles.heading, { color: palette.label }]}>MINH CHỨNG ({links.length})</Text>
       <View style={styles.grid}>
         {links.map((link, i) => (
-          <View key={`${i}-${link}`} style={{ width }}>
-            <EvidenceThumb link={link} index={i} palette={palette} onImagePress={onImagePress} />
-          </View>
-        ))}
-      </View>
-      <View style={styles.linkRow}>
-        {links.map((link, i) => (
-          <TouchableOpacity
-            key={`lnk-${i}`}
-            onPress={() => void Linking.openURL(link)}
-            style={[styles.linkPill, { borderColor: palette.tableBorder }]}
-          >
-            <Text style={[styles.linkPillText, { color: palette.accent }]}>🔗 Link {i + 1}</Text>
-          </TouchableOpacity>
+          <EvidenceThumb key={`${i}-${link}`} link={link} index={i} palette={palette} onImagePress={onImagePress} />
         ))}
       </View>
     </View>
@@ -91,36 +74,42 @@ export function ErpEvidenceGrid({ links, palette, columns = 2, onImagePress }: P
 
 const styles = StyleSheet.create({
   wrap: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, flexGrow: 0 },
-  heading: { fontSize: 10, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 8 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  cell: { borderRadius: 8, overflow: 'hidden', borderWidth: 1, aspectRatio: 16 / 9, backgroundColor: '#0f172a33' },
+  heading: { fontSize: 10, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 6 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  cell: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    backgroundColor: '#0f172a33',
+  },
   img: { width: '100%', height: '100%' },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#00000033',
-    justifyContent: 'center',
+    backgroundColor: '#00000022',
+    justifyContent: 'flex-end',
     alignItems: 'center',
+    paddingBottom: 4,
   },
   overlayText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
     color: '#fff',
     backgroundColor: '#0f172acc',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   fallback: {
+    width: 72,
+    height: 72,
     borderRadius: 8,
     borderWidth: 1,
-    aspectRatio: 16 / 9,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 8,
+    padding: 4,
     backgroundColor: '#1e293b88',
   },
-  fallbackText: { fontSize: 11, textAlign: 'center', marginTop: 6, lineHeight: 16 },
-  linkRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-  linkPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
-  linkPillText: { fontSize: 11, fontWeight: '600' },
+  fallbackText: { fontSize: 9, textAlign: 'center', marginTop: 2, lineHeight: 12 },
 });
