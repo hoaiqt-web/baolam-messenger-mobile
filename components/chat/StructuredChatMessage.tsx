@@ -36,6 +36,10 @@ import {
   PtkReportMessageCard,
   isPtkReportMessage,
 } from '@/components/chat/PtkReportMessageCard';
+import {
+  AcceptanceNtMessageCard,
+  isAcceptanceNtMessage,
+} from '@/components/chat/AcceptanceNtMessageCard';
 
 import type { ChatGeneratedTask, ChatMessage } from '@/Models/chat/types';
 
@@ -65,7 +69,8 @@ export function isStructuredChatMessage(body: string | null | undefined): boolea
     isCrossDeptMaterialMessage(text) ||
     isBugReportMessage(text) ||
     isSecurityGateMessage(text) ||
-    isPtkReportMessage(text)
+    isPtkReportMessage(text) ||
+    isAcceptanceNtMessage(text)
   );
 }
 
@@ -77,7 +82,8 @@ export function shouldHideDefaultAttachments(body: string | null | undefined): b
     isPycvtWarehouseMessage(text) ||
     isInventoryDraftMessage(text) ||
     isSecurityGateMessage(text) ||
-    isPtkReportMessage(text)
+    isPtkReportMessage(text) ||
+    isAcceptanceNtMessage(text)
   );
 }
 
@@ -137,6 +143,17 @@ export function StructuredChatMessage({
         isMine={isMine}
         isDark={isDark}
         message={message}
+        onImagePress={onImagePress}
+      />
+    );
+  }
+  if (isAcceptanceNtMessage(text)) {
+    return (
+      <AcceptanceNtMessageCard
+        body={text}
+        isMine={isMine}
+        isDark={isDark}
+        messageAttachments={message?.attachments}
         onImagePress={onImagePress}
       />
     );
