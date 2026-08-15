@@ -22,6 +22,8 @@ type Meta = {
   project_code?: string;
   project_name?: string;
   title?: string;
+  l1_name?: string | null;
+  l2_name?: string | null;
   record_type?: string;
   description?: string;
   inspector?: string;
@@ -102,7 +104,7 @@ export function AcceptanceNtMessageCard({ body, isMine, isDark, messageAttachmen
       <View style={[styles.badge, { borderColor: palette.accent }]}>
         <Text style={{ color: palette.accent, fontWeight: '700', fontSize: 11 }}>{meta.status_label || 'Chờ QLNM duyệt'}</Text>
       </View>
-      {meta.title ? <Text style={[styles.row, { color: palette.text }]}>📂 {meta.title}</Text> : null}
+      {meta.title ? <Text style={[styles.row, { color: palette.text }]}>📂 Hạng mục: {meta.title}</Text> : null}
       {meta.inspector ? <Text style={[styles.row, { color: palette.textMuted }]}>👤 {meta.inspector}</Text> : null}
       {meta.approver ? <Text style={[styles.row, { color: palette.textMuted }]}>👔 {meta.approver}</Text> : null}
       <View style={styles.stats}>
