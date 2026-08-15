@@ -27,7 +27,7 @@ type Props = {
 
 /** Flex weights — tổng luôn = 100% khung card, không cần scroll ngang. */
 const TIMELINE_FLEX = { role: 0.72, person: 2, time: 0.62, date: 0.66 } as const;
-const ITEMS_FLEX = { stt: 0.42, mat: 2.2, need: 0.82, price: 0.95, total: 1.05, wbs: 1.2 } as const;
+const ITEMS_FLEX = { stt: 0.4, mat: 1.9, need: 0.7, unit: 0.55, price: 0.9, total: 1.0, wbs: 1.1 } as const;
 
 function poTaskState(tasks?: ChatGeneratedTask[]) {
   const poTask = (tasks ?? []).find((t) => t.source_module === 'erp_po_approval');
@@ -164,6 +164,9 @@ function PoItemsTable({
         <ErpTableCell flex={ITEMS_FLEX.need} palette={palette} head align="right" nowrap>
           CẦN
         </ErpTableCell>
+        <ErpTableCell flex={ITEMS_FLEX.unit} palette={palette} head align="center" nowrap>
+          ĐVT
+        </ErpTableCell>
         <ErpTableCell flex={ITEMS_FLEX.price} palette={palette} head align="right" nowrap>
           Đ.GIÁ
         </ErpTableCell>
@@ -204,6 +207,15 @@ function PoItemsTable({
             {formatNumberVi(item.quantity)}
           </ErpTableCell>
           <ErpTableCell
+            flex={ITEMS_FLEX.unit}
+            palette={palette}
+            align="center"
+            nowrap
+            textStyle={{ color: palette.text }}
+          >
+            {(item.unit || '').trim() || '—'}
+          </ErpTableCell>
+          <ErpTableCell
             flex={ITEMS_FLEX.price}
             palette={palette}
             align="right"
@@ -233,6 +245,7 @@ function PoItemsTable({
         <View style={{ flex: ITEMS_FLEX.stt }} />
         <View style={{ flex: ITEMS_FLEX.mat }} />
         <View style={{ flex: ITEMS_FLEX.need }} />
+        <View style={{ flex: ITEMS_FLEX.unit }} />
         <View style={[styles.tableFootLabelCol, { flex: ITEMS_FLEX.price }]}>
           <Text style={[styles.footLabel, { color: '#fbbf24' }]}>Tổng cộng</Text>
         </View>

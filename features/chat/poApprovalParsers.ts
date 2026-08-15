@@ -14,6 +14,7 @@ export interface PoUiItem {
   stt: number;
   material_name: string;
   quantity: number;
+  unit?: string | null;
   unit_price: number;
   total_price: number;
   status_text?: string | null;

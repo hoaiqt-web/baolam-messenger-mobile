@@ -27,6 +27,7 @@ export function getChatMessagePreview(body: string | null | undefined, maxLen = 
 
   if (isStructuredChatMessage(raw)) {
     if (raw.includes('PHIẾU YÊU CẦU VẬT TƯ')) return '📋 Phiếu yêu cầu vật tư';
+    if (raw.includes('CẬP NHẬT ĐƠN GIÁ TVVT')) return '💰 Cập nhật đơn giá TVVT';
     if (raw.includes('PO #') && /ĐÃ (ĐƯỢC DUYỆT|BỊ TỪ CHỐI)/i.test(raw)) {
       return raw.includes('ĐIỀU XE') ? '✅ Điều xe đã duyệt' : '✅ PO đã duyệt';
     }
