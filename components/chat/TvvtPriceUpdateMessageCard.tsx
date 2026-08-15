@@ -53,7 +53,9 @@ export function TvvtPriceUpdateMessageCard({ body, isMine }: Props) {
       ) : null}
 
       {updated.length === 0 && skipped.length === 0 ? (
-        <Text style={[styles.line, { color: palette.textMuted }]}>Không ghi được dòng nào vào TVVT.</Text>
+        <Text style={[styles.line, { color: '#fca5a5' }]}>
+          ⚠️ {meta?.error || 'Không ghi được dòng nào vào TVVT — không đọc được vật tư trên PO hoặc không khớp TVVT.'}
+        </Text>
       ) : null}
     </View>
   );
