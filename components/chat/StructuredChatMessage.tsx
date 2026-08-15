@@ -1,10 +1,12 @@
 import { isPycvtWarehouseMessage } from '@/features/chat/pycvtParsers';
 import { isPoApprovalMessage } from '@/features/chat/poApprovalParsers';
 import { isPoApprovalResultMessage } from '@/features/chat/poApprovalResultParsers';
+import { isTvvtPriceUpdateMessage } from '@/features/chat/tvvtPriceUpdateParsers';
 import { isErpTaskReportBody } from '@/features/chat/taskReportParsers';
 import { PycvtMessageCard } from '@/components/chat/PycvtMessageCard';
 import { PoApprovalMessageCard } from '@/components/chat/PoApprovalMessageCard';
 import { PoApprovalResultMessageCard } from '@/components/chat/PoApprovalResultMessageCard';
+import { TvvtPriceUpdateMessageCard } from '@/components/chat/TvvtPriceUpdateMessageCard';
 import { ErpTaskReportCard } from '@/components/chat/ErpTaskReportCard';
 import {
   ErpStructuredMessage,
@@ -57,6 +59,7 @@ export function isStructuredChatMessage(body: string | null | undefined): boolea
     isPycvtWarehouseMessage(text) ||
     isPoApprovalMessage(text) ||
     isPoApprovalResultMessage(text) ||
+    isTvvtPriceUpdateMessage(text) ||
     isErpAssignmentMessage(text) ||
     isErpTaskReportBody(text) ||
     isTaskVerificationMessage(text) ||
@@ -154,6 +157,9 @@ export function StructuredChatMessage({
         generatedTasks={generatedTasks}
       />
     );
+  }
+  if (isTvvtPriceUpdateMessage(text)) {
+    return <TvvtPriceUpdateMessageCard body={text} isMine={isMine} />;
   }
   if (isPoApprovalResultMessage(text)) {
     return <PoApprovalResultMessageCard body={text} isMine={isMine} />;
