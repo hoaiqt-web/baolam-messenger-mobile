@@ -14,6 +14,7 @@ export type TvvtPriceRow = {
 export type TvvtPriceMeta = {
   po_id?: number;
   po_code?: string;
+  error?: string | null;
   updated?: TvvtPriceRow[];
   skipped?: TvvtPriceRow[];
 };
