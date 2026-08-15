@@ -17,7 +17,13 @@ export function TvvtPriceUpdateMessageCard({ body, isMine }: Props) {
   const meta = parseTvvtPriceMeta(body);
   const palette = getErpMessengerCardPalette(isMine, 'amber');
   const updated = meta?.updated ?? [];
-  const skipped = meta?.skipped ?? [];
+  let skipped = (meta?.skipped ?? []).filter(
+    (row) => (row.message || row.line || '').trim() !== '',
+  );
+  const error = (meta?.error || '').trim();
+  if (updated.length === 0 && skipped.length === 0 && error) {
+    skipped = [{ material_name: 'PO', message: error }];
+  }
   const title = meta?.po_code
     ? `Cập nhật đơn giá TVVT — ${meta.po_code}`
     : 'Cập nhật đơn giá TVVT';
