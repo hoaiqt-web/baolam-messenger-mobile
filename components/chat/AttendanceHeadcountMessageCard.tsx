@@ -27,6 +27,7 @@ function LocationBlock({
   const visiblePeople = selectedDept
     ? location.people.filter((person) => person.department === selectedDept)
     : location.people;
+  const showTotal = selectedDept === null;
   const rowTotal = visiblePeople.length;
 
   return (
@@ -70,10 +71,12 @@ function LocationBlock({
             <Text style={styles.countText}>{counts[dept] ?? 0}</Text>
           </View>
         ))}
-        <View style={[styles.stackRow, styles.stackTotal]}>
-          <Text style={styles.totalHead}>Tổng</Text>
-          <Text style={styles.totalText}>{rowTotal}</Text>
-        </View>
+        {showTotal ? (
+          <View style={[styles.stackRow, styles.stackTotal]}>
+            <Text style={styles.totalHead}>Tổng</Text>
+            <Text style={styles.totalText}>{rowTotal}</Text>
+          </View>
+        ) : null}
 
         {open ? (
           visiblePeople.length === 0 ? (
