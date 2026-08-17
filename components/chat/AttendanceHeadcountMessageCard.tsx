@@ -77,9 +77,14 @@ function LocationBlock({
             <Text style={styles.totalText}>{rowTotal}</Text>
           </View>
         ) : null}
+      </View>
 
-        {open ? (
-          visiblePeople.length === 0 ? (
+      {open ? (
+        <View style={styles.peopleBox}>
+          <Text style={styles.peopleHeading}>
+            Danh sách nhân sự · {visiblePeople.length}
+          </Text>
+          {visiblePeople.length === 0 ? (
             <Text style={styles.empty}>Không có nhân sự.</Text>
           ) : (
             visiblePeople.map((person, index) => (
@@ -88,9 +93,9 @@ function LocationBlock({
                 <Text style={styles.personDept}>{person.department}</Text>
               </View>
             ))
-          )
-        ) : null}
-      </View>
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -170,6 +175,24 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
   },
+  peopleBox: {
+    borderWidth: 1,
+    borderColor: '#065f4655',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#0a1a14',
+  },
+  peopleHeading: {
+    color: '#6ee7b7',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#064e3b66',
+  },
   block: {
     marginHorizontal: 10,
     marginTop: 10,
@@ -239,20 +262,24 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   personRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderTopWidth: 1,
     borderTopColor: '#1e293b',
   },
   personName: {
+    flex: 1,
     color: '#f1f5f9',
     fontSize: 13,
     fontWeight: '600',
   },
   personDept: {
-    marginTop: 2,
-    color: '#94a3b8',
-    fontSize: 12,
+    color: '#64748b',
+    fontSize: 11,
   },
   empty: {
     color: '#64748b',
