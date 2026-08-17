@@ -78,7 +78,7 @@ export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
       </View>
 
       {data.locations.length === 0 ? (
-        <Text style={styles.empty}>Chưa có dữ liệu chấm công.</Text>
+        <Text style={styles.empty}>Không có chấm công.</Text>
       ) : (
         data.locations.map((location) => (
           <LocationBlock key={location.name} location={location} />
