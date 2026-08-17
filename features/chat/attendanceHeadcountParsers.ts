@@ -95,3 +95,21 @@ export function parseAttendanceHeadcountMessage(
 
   return { dateLabel, total, note, locations };
 }
+
+export function collectDepartments(locations: AttendanceHeadcountLocation[]): string[] {
+  const set = new Set<string>();
+  for (const location of locations) {
+    for (const person of location.people) {
+      if (person.department) set.add(person.department);
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'vi'));
+}
+
+export function countByDepartment(people: AttendanceHeadcountPerson[]): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const person of people) {
+    map[person.department] = (map[person.department] ?? 0) + 1;
+  }
+  return map;
+}
