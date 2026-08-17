@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import {
+  collectDepartments,
+  countByDepartment,
   parseAttendanceHeadcountMessage,
   type AttendanceHeadcountLocation,
 } from '@/features/chat/attendanceHeadcountParsers';
@@ -10,47 +12,82 @@ type Props = {
   isMine: boolean;
 };
 
-function LocationBlock({ location }: { location: AttendanceHeadcountLocation }) {
+function LocationTable({
+  location,
+  dateLabel,
+  departments,
+  selectedDept,
+}: {
+  location: AttendanceHeadcountLocation;
+  dateLabel: string;
+  departments: string[];
+  selectedDept: string | null;
+}) {
   const [open, setOpen] = useState(false);
+  const counts = countByDepartment(location.people);
+  const visibleDepts = selectedDept ? departments.filter((dept) => dept === selectedDept) : departments;
+  const visiblePeople = selectedDept
+    ? location.people.filter((person) => person.department === selectedDept)
+    : location.people;
+  const rowTotal = visiblePeople.length;
 
   return (
     <View style={styles.location}>
-      <TouchableOpacity
-        onPress={() => setOpen((value) => !value)}
-        style={styles.locationHeader}
-        activeOpacity={0.75}
-      >
-        <Text style={styles.chevron}>{open ? '▾' : '▸'}</Text>
-        <Text style={styles.locationName} numberOfLines={1}>
-          {location.name}
-        </Text>
-        <Text style={styles.hint}>{open ? 'Thu gọn' : 'Xem danh sách'}</Text>
-        <View style={styles.countBadge}>
-          <Text style={styles.countBadgeText}>{location.count}</Text>
+      <ScrollView horizontal nestedScrollEnabled>
+        <View>
+          <TouchableOpacity onPress={() => setOpen((value) => !value)} activeOpacity={0.8} style={styles.locationTitle}>
+            <Text style={styles.locationTitleText}>
+              {open ? '▾ ' : '▸ '}
+              {location.name}
+            </Text>
+          </TouchableOpacity>
+          <View style={styles.tableRow}>
+            <View style={[styles.cell, styles.stickyCell]}>
+              <Text style={styles.cellMuted}>Ngày</Text>
+              <Text style={styles.dateText}>{dateLabel || '—'}</Text>
+            </View>
+            {visibleDepts.map((dept) => (
+              <View key={dept} style={styles.cell}>
+                <Text style={styles.deptHead} numberOfLines={2}>
+                  {dept}
+                </Text>
+              </View>
+            ))}
+            <View style={styles.cell}>
+              <Text style={styles.totalHead}>Tổng</Text>
+            </View>
+          </View>
+          <View style={styles.tableRow}>
+            <View style={[styles.cell, styles.stickyCell]}>
+              <Text style={styles.rowLabel}>Nhân sự làm việc</Text>
+            </View>
+            {visibleDepts.map((dept) => (
+              <View key={dept} style={styles.cell}>
+                <Text style={styles.countText}>{counts[dept] ?? 0}</Text>
+              </View>
+            ))}
+            <View style={styles.cell}>
+              <Text style={styles.totalText}>{rowTotal}</Text>
+            </View>
+          </View>
         </View>
-      </TouchableOpacity>
+      </ScrollView>
 
       {open ? (
-        location.people.length === 0 ? (
+        visiblePeople.length === 0 ? (
           <Text style={styles.empty}>Không có nhân sự.</Text>
         ) : (
           <View>
-            <View style={styles.tableHead}>
-              <Text style={[styles.tableHeadText, { flex: 1 }]}>Họ tên</Text>
-              <Text style={[styles.tableHeadText, { flex: 1 }]}>Bộ phận</Text>
-            </View>
-            <ScrollView style={styles.peopleScroll} nestedScrollEnabled>
-              {location.people.map((person, index) => (
-                <View key={`${person.name}-${index}`} style={styles.personRow}>
-                  <Text style={styles.personName} numberOfLines={1}>
-                    {person.name}
-                  </Text>
-                  <Text style={styles.personDept} numberOfLines={1}>
-                    {person.department}
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
+            {visiblePeople.map((person, index) => (
+              <View key={`${person.name}-${index}`} style={styles.personRow}>
+                <Text style={styles.personName} numberOfLines={1}>
+                  {person.name}
+                </Text>
+                <Text style={styles.personDept} numberOfLines={1}>
+                  {person.department}
+                </Text>
+              </View>
+            ))}
           </View>
         )
       ) : null}
@@ -60,28 +97,48 @@ function LocationBlock({ location }: { location: AttendanceHeadcountLocation }) 
 
 export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
   const data = parseAttendanceHeadcountMessage(body);
+  const departments = useMemo(
+    () => (data ? collectDepartments(data.locations) : []),
+    [data],
+  );
+  const [selectedDept, setSelectedDept] = useState<string | null>(null);
   if (!data) return null;
 
   return (
     <View style={[styles.wrap, isMine ? styles.wrapMine : null]}>
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Báo cáo tình hình nhân sự</Text>
-          <Text style={styles.subtitle}>
-            Ngày {data.dateLabel || '—'} · bấm địa điểm để xem tên
-          </Text>
-        </View>
-        <View style={styles.totalBadge}>
-          <Text style={styles.totalLabel}>Tổng</Text>
-          <Text style={styles.totalBadgeText}>{data.total}</Text>
-        </View>
-      </View>
+      <Text style={styles.title}>Báo cáo tình hình nhân sự Bảo Lâm</Text>
+
+      {departments.length > 0 ? (
+        <ScrollView horizontal style={styles.chipRow} contentContainerStyle={styles.chipRowInner}>
+          <TouchableOpacity
+            onPress={() => setSelectedDept(null)}
+            style={[styles.chip, selectedDept === null ? styles.chipOn : null]}
+          >
+            <Text style={[styles.chipText, selectedDept === null ? styles.chipTextOn : null]}>Tất cả</Text>
+          </TouchableOpacity>
+          {departments.map((dept) => (
+            <TouchableOpacity
+              key={dept}
+              onPress={() => setSelectedDept((current) => (current === dept ? null : dept))}
+              style={[styles.chip, selectedDept === dept ? styles.chipOn : null]}
+            >
+              <Text style={[styles.chipText, selectedDept === dept ? styles.chipTextOn : null]}>{dept}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      ) : null}
 
       {data.locations.length === 0 ? (
         <Text style={styles.empty}>Không có chấm công.</Text>
       ) : (
         data.locations.map((location) => (
-          <LocationBlock key={location.name} location={location} />
+          <LocationTable
+            key={location.name}
+            location={location}
+            dateLabel={data.dateLabel}
+            departments={departments}
+            selectedDept={selectedDept}
+          />
         ))
       )}
 
@@ -93,121 +150,135 @@ export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     borderWidth: 1,
-    borderColor: '#34d39940',
-    backgroundColor: '#0a1a12',
+    borderColor: '#475569b3',
+    backgroundColor: '#0b1220',
     borderRadius: 12,
     overflow: 'hidden',
-    minWidth: 240,
+    minWidth: 260,
+    paddingBottom: 10,
   },
   wrapMine: {
     borderColor: '#34d39955',
-    backgroundColor: '#052e16',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#33415580',
   },
   title: {
-    color: '#f1f5f9',
+    color: '#f8fafc',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     textTransform: 'uppercase',
+    textAlign: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  subtitle: {
-    marginTop: 4,
-    color: '#94a3b8',
-    fontSize: 11,
+  chipRow: {
+    maxHeight: 40,
+    borderTopWidth: 1,
+    borderTopColor: '#1e293b',
   },
-  totalBadge: {
-    borderWidth: 1,
-    borderColor: '#fda4af55',
-    backgroundColor: '#4c051955',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  chipRowInner: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  totalLabel: {
-    color: '#fecdd3',
-    fontSize: 9,
-    fontWeight: '700',
-    textTransform: 'uppercase',
+  chip: {
+    backgroundColor: '#1e293b',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  totalBadgeText: {
-    color: '#fda4af',
-    fontSize: 14,
-    fontWeight: '800',
+  chipOn: {
+    backgroundColor: '#059669',
+  },
+  chipText: {
+    color: '#cbd5e1',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  chipTextOn: {
+    color: '#fff',
   },
   location: {
-    marginHorizontal: 12,
+    marginHorizontal: 10,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: '#334155cc',
+    borderColor: '#475569',
     borderRadius: 8,
-    backgroundColor: '#07140fcc',
     overflow: 'hidden',
   },
-  locationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  locationTitle: {
+    backgroundColor: '#92400e99',
+    paddingVertical: 8,
     paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: '#022c22cc',
   },
-  chevron: {
-    color: '#6ee7b7',
-    fontSize: 14,
-    width: 14,
-  },
-  locationName: {
-    flex: 1,
-    color: '#d1fae5',
-    fontSize: 13,
-    fontWeight: '700',
+  locationTitleText: {
+    color: '#fff7ed',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
     textTransform: 'uppercase',
   },
-  hint: {
-    color: '#6ee7b7aa',
+  tableRow: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
+  },
+  cell: {
+    minWidth: 72,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#334155',
+    justifyContent: 'center',
+  },
+  stickyCell: {
+    minWidth: 92,
+    backgroundColor: '#111827',
+  },
+  cellMuted: {
+    color: '#94a3b8',
     fontSize: 10,
+    fontWeight: '700',
   },
-  countBadge: {
-    backgroundColor: '#00000055',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+  dateText: {
+    color: '#fb7185',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2,
   },
-  countBadgeText: {
-    color: '#fda4af',
+  deptHead: {
+    color: '#d1fae5',
+    fontSize: 10,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  totalHead: {
+    color: '#fecdd3',
+    fontSize: 10,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  rowLabel: {
+    color: '#e2e8f0',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  countText: {
+    color: '#f8fafc',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  totalText: {
+    color: '#fb7185',
     fontSize: 13,
     fontWeight: '800',
-  },
-  tableHead: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#10261c',
-  },
-  tableHeadText: {
-    color: '#6ee7b7',
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  peopleScroll: {
-    maxHeight: 240,
+    textAlign: 'center',
   },
   personRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 10,
-    paddingHorizontal: 12,
+    gap: 8,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderTopWidth: 1,
     borderTopColor: '#1e293b',
@@ -216,7 +287,6 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#f1f5f9',
     fontSize: 13,
-    fontWeight: '500',
   },
   personDept: {
     flex: 1,
@@ -234,6 +304,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     paddingHorizontal: 14,
     paddingTop: 10,
-    paddingBottom: 12,
   },
 });
