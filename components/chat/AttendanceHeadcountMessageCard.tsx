@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import {
   collectDepartments,
   countByDepartment,
@@ -32,15 +32,15 @@ function LocationBlock({
   return (
     <View style={styles.block}>
       <TouchableOpacity onPress={() => setOpen((value) => !value)} activeOpacity={0.75} style={styles.locationHeading}>
-        <Text style={styles.locationHeadingText} numberOfLines={1}>
+        <Text style={styles.locationHeadingText}>
           {open ? '▾  ' : '▸  '}
           {location.name}
         </Text>
-        <Text style={styles.locationCount}>{location.count}</Text>
+        <Text style={styles.locationCount}>{open ? 'thu gọn' : 'xem tên'} {location.count}</Text>
       </TouchableOpacity>
 
       {departments.length > 0 ? (
-        <ScrollView horizontal nestedScrollEnabled contentContainerStyle={styles.chipRowInner}>
+        <View style={styles.chipWrap}>
           <TouchableOpacity
             onPress={() => setSelectedDept(null)}
             style={[styles.chip, selectedDept === null ? styles.chipOn : null]}
@@ -56,43 +56,24 @@ function LocationBlock({
               <Text style={[styles.chipText, selectedDept === dept ? styles.chipTextOn : null]}>{dept}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       ) : null}
 
       <View style={styles.location}>
-        <ScrollView horizontal nestedScrollEnabled>
-          <View>
-            <View style={styles.tableRow}>
-              <View style={[styles.cell, styles.stickyCell]}>
-                <Text style={styles.cellMuted}>Ngày</Text>
-                <Text style={styles.dateText}>{dateLabel || '—'}</Text>
-              </View>
-              {visibleDepts.map((dept) => (
-                <View key={dept} style={styles.cell}>
-                  <Text style={styles.deptHead} numberOfLines={2}>
-                    {dept}
-                  </Text>
-                </View>
-              ))}
-              <View style={styles.cell}>
-                <Text style={styles.totalHead}>Tổng</Text>
-              </View>
-            </View>
-            <View style={styles.tableRow}>
-              <View style={[styles.cell, styles.stickyCell]}>
-                <Text style={styles.rowLabel}>Nhân sự làm việc</Text>
-              </View>
-              {visibleDepts.map((dept) => (
-                <View key={dept} style={styles.cell}>
-                  <Text style={styles.countText}>{counts[dept] ?? 0}</Text>
-                </View>
-              ))}
-              <View style={styles.cell}>
-                <Text style={styles.totalText}>{rowTotal}</Text>
-              </View>
-            </View>
+        <View style={styles.stackRow}>
+          <Text style={styles.cellMuted}>Ngày</Text>
+          <Text style={styles.dateText}>{dateLabel || '—'}</Text>
+        </View>
+        {visibleDepts.map((dept) => (
+          <View key={dept} style={styles.stackRow}>
+            <Text style={styles.stackDept}>{dept}</Text>
+            <Text style={styles.countText}>{counts[dept] ?? 0}</Text>
           </View>
-        </ScrollView>
+        ))}
+        <View style={[styles.stackRow, styles.stackTotal]}>
+          <Text style={styles.totalHead}>Tổng</Text>
+          <Text style={styles.totalText}>{rowTotal}</Text>
+        </View>
 
         {open ? (
           visiblePeople.length === 0 ? (
@@ -100,12 +81,8 @@ function LocationBlock({
           ) : (
             visiblePeople.map((person, index) => (
               <View key={`${person.name}-${index}`} style={styles.personRow}>
-                <Text style={styles.personName} numberOfLines={1}>
-                  {person.name}
-                </Text>
-                <Text style={styles.personDept} numberOfLines={1}>
-                  {person.department}
-                </Text>
+                <Text style={styles.personName}>{person.name}</Text>
+                <Text style={styles.personDept}>{person.department}</Text>
               </View>
             ))
           )
@@ -138,12 +115,14 @@ export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
+    alignSelf: 'stretch',
+    width: '100%',
+    maxWidth: '100%',
     borderWidth: 1,
     borderColor: '#475569b3',
     backgroundColor: '#0b1220',
     borderRadius: 12,
     overflow: 'hidden',
-    minWidth: 260,
     paddingBottom: 10,
   },
   wrapMine: {
@@ -151,30 +130,25 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#f8fafc',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
     textAlign: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  chipRow: {
-    maxHeight: 40,
-    borderTopWidth: 1,
-    borderTopColor: '#1e293b',
-  },
-  chipRowInner: {
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 6,
+    paddingVertical: 10,
+    lineHeight: 16,
+  },
+  chipWrap: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   chip: {
     backgroundColor: '#1e293b',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
+    maxWidth: '100%',
   },
   chipOn: {
     backgroundColor: '#059669',
@@ -200,7 +174,7 @@ const styles = StyleSheet.create({
   },
   locationHeading: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
     paddingHorizontal: 2,
   },
@@ -213,81 +187,67 @@ const styles = StyleSheet.create({
   },
   locationCount: {
     color: '#fb7185',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '800',
+    marginTop: 2,
   },
-  tableRow: {
+  stackRow: {
     flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#334155',
-  },
-  cell: {
-    minWidth: 72,
-    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#334155',
-    justifyContent: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#1e293b',
   },
-  stickyCell: {
-    minWidth: 92,
-    backgroundColor: '#111827',
+  stackTotal: {
+    backgroundColor: '#4c051955',
+  },
+  stackDept: {
+    flex: 1,
+    color: '#e2e8f0',
+    fontSize: 12,
+    fontWeight: '600',
   },
   cellMuted: {
     color: '#94a3b8',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
   },
   dateText: {
     color: '#fb7185',
     fontSize: 12,
     fontWeight: '800',
-    marginTop: 2,
-  },
-  deptHead: {
-    color: '#d1fae5',
-    fontSize: 10,
-    fontWeight: '700',
-    textAlign: 'center',
   },
   totalHead: {
     color: '#fecdd3',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '800',
-    textAlign: 'center',
-  },
-  rowLabel: {
-    color: '#e2e8f0',
-    fontSize: 11,
-    fontWeight: '600',
   },
   countText: {
     color: '#f8fafc',
     fontSize: 13,
     fontWeight: '700',
-    textAlign: 'center',
   },
   totalText: {
     color: '#fb7185',
     fontSize: 13,
     fontWeight: '800',
-    textAlign: 'center',
   },
   personRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderTopWidth: 1,
     borderTopColor: '#1e293b',
   },
   personName: {
-    flex: 1,
     color: '#f1f5f9',
     fontSize: 13,
+    fontWeight: '600',
   },
   personDept: {
-    flex: 1,
+    marginTop: 2,
     color: '#94a3b8',
     fontSize: 12,
   },
@@ -302,5 +262,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     paddingHorizontal: 14,
     paddingTop: 10,
+    lineHeight: 18,
   },
 });
