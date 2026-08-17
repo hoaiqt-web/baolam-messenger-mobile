@@ -16,6 +16,8 @@ import { isTaskVerificationMessage } from '@/features/chat/taskVerificationParse
 import { TaskVerificationMessageCard } from '@/components/chat/TaskVerificationMessageCard';
 import { isBugOutstandingDigestMessage } from '@/features/chat/bugOutstandingDigestParsers';
 import { BugOutstandingDigestMessageCard } from '@/components/chat/BugOutstandingDigestMessageCard';
+import { isAttendanceHeadcountMessage } from '@/features/chat/attendanceHeadcountParsers';
+import { AttendanceHeadcountMessageCard } from '@/components/chat/AttendanceHeadcountMessageCard';
 
 // 5 New Message Cards
 import {
@@ -64,6 +66,7 @@ export function isStructuredChatMessage(body: string | null | undefined): boolea
     isErpTaskReportBody(text) ||
     isTaskVerificationMessage(text) ||
     isBugOutstandingDigestMessage(text) ||
+    isAttendanceHeadcountMessage(text) ||
     isInventoryDraftMessage(text) ||
     isCrossDeptMaterialMessage(text) ||
     isBugReportMessage(text) ||
@@ -172,6 +175,9 @@ export function StructuredChatMessage({
   }
   if (isTaskVerificationMessage(text)) {
     return <TaskVerificationMessageCard body={text} isMine={isMine} />;
+  }
+  if (isAttendanceHeadcountMessage(text)) {
+    return <AttendanceHeadcountMessageCard body={text} isMine={isMine} />;
   }
   if (isBugOutstandingDigestMessage(text)) {
     return <BugOutstandingDigestMessageCard body={text} isMine={isMine} />;
