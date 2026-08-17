@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import {
   collectDepartments,
@@ -12,18 +12,16 @@ type Props = {
   isMine: boolean;
 };
 
-function LocationTable({
+function LocationBlock({
   location,
   dateLabel,
-  departments,
-  selectedDept,
 }: {
   location: AttendanceHeadcountLocation;
   dateLabel: string;
-  departments: string[];
-  selectedDept: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [selectedDept, setSelectedDept] = useState<string | null>(null);
+  const departments = collectDepartments([location]);
   const counts = countByDepartment(location.people);
   const visibleDepts = selectedDept ? departments.filter((dept) => dept === selectedDept) : departments;
   const visiblePeople = selectedDept
@@ -32,84 +30,17 @@ function LocationTable({
   const rowTotal = visiblePeople.length;
 
   return (
-    <View style={styles.location}>
-      <ScrollView horizontal nestedScrollEnabled>
-        <View>
-          <TouchableOpacity onPress={() => setOpen((value) => !value)} activeOpacity={0.8} style={styles.locationTitle}>
-            <Text style={styles.locationTitleText}>
-              {open ? '▾ ' : '▸ '}
-              {location.name}
-            </Text>
-          </TouchableOpacity>
-          <View style={styles.tableRow}>
-            <View style={[styles.cell, styles.stickyCell]}>
-              <Text style={styles.cellMuted}>Ngày</Text>
-              <Text style={styles.dateText}>{dateLabel || '—'}</Text>
-            </View>
-            {visibleDepts.map((dept) => (
-              <View key={dept} style={styles.cell}>
-                <Text style={styles.deptHead} numberOfLines={2}>
-                  {dept}
-                </Text>
-              </View>
-            ))}
-            <View style={styles.cell}>
-              <Text style={styles.totalHead}>Tổng</Text>
-            </View>
-          </View>
-          <View style={styles.tableRow}>
-            <View style={[styles.cell, styles.stickyCell]}>
-              <Text style={styles.rowLabel}>Nhân sự làm việc</Text>
-            </View>
-            {visibleDepts.map((dept) => (
-              <View key={dept} style={styles.cell}>
-                <Text style={styles.countText}>{counts[dept] ?? 0}</Text>
-              </View>
-            ))}
-            <View style={styles.cell}>
-              <Text style={styles.totalText}>{rowTotal}</Text>
-            </View>
-          </View>
-        </View>
-      </ScrollView>
-
-      {open ? (
-        visiblePeople.length === 0 ? (
-          <Text style={styles.empty}>Không có nhân sự.</Text>
-        ) : (
-          <View>
-            {visiblePeople.map((person, index) => (
-              <View key={`${person.name}-${index}`} style={styles.personRow}>
-                <Text style={styles.personName} numberOfLines={1}>
-                  {person.name}
-                </Text>
-                <Text style={styles.personDept} numberOfLines={1}>
-                  {person.department}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )
-      ) : null}
-    </View>
-  );
-}
-
-export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
-  const data = parseAttendanceHeadcountMessage(body);
-  const departments = useMemo(
-    () => (data ? collectDepartments(data.locations) : []),
-    [data],
-  );
-  const [selectedDept, setSelectedDept] = useState<string | null>(null);
-  if (!data) return null;
-
-  return (
-    <View style={[styles.wrap, isMine ? styles.wrapMine : null]}>
-      <Text style={styles.title}>Báo cáo tình hình nhân sự Bảo Lâm</Text>
+    <View style={styles.block}>
+      <TouchableOpacity onPress={() => setOpen((value) => !value)} activeOpacity={0.75} style={styles.locationHeading}>
+        <Text style={styles.locationHeadingText} numberOfLines={1}>
+          {open ? '▾  ' : '▸  '}
+          {location.name}
+        </Text>
+        <Text style={styles.locationCount}>{location.count}</Text>
+      </TouchableOpacity>
 
       {departments.length > 0 ? (
-        <ScrollView horizontal style={styles.chipRow} contentContainerStyle={styles.chipRowInner}>
+        <ScrollView horizontal nestedScrollEnabled contentContainerStyle={styles.chipRowInner}>
           <TouchableOpacity
             onPress={() => setSelectedDept(null)}
             style={[styles.chip, selectedDept === null ? styles.chipOn : null]}
@@ -128,17 +59,75 @@ export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
         </ScrollView>
       ) : null}
 
+      <View style={styles.location}>
+        <ScrollView horizontal nestedScrollEnabled>
+          <View>
+            <View style={styles.tableRow}>
+              <View style={[styles.cell, styles.stickyCell]}>
+                <Text style={styles.cellMuted}>Ngày</Text>
+                <Text style={styles.dateText}>{dateLabel || '—'}</Text>
+              </View>
+              {visibleDepts.map((dept) => (
+                <View key={dept} style={styles.cell}>
+                  <Text style={styles.deptHead} numberOfLines={2}>
+                    {dept}
+                  </Text>
+                </View>
+              ))}
+              <View style={styles.cell}>
+                <Text style={styles.totalHead}>Tổng</Text>
+              </View>
+            </View>
+            <View style={styles.tableRow}>
+              <View style={[styles.cell, styles.stickyCell]}>
+                <Text style={styles.rowLabel}>Nhân sự làm việc</Text>
+              </View>
+              {visibleDepts.map((dept) => (
+                <View key={dept} style={styles.cell}>
+                  <Text style={styles.countText}>{counts[dept] ?? 0}</Text>
+                </View>
+              ))}
+              <View style={styles.cell}>
+                <Text style={styles.totalText}>{rowTotal}</Text>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+
+        {open ? (
+          visiblePeople.length === 0 ? (
+            <Text style={styles.empty}>Không có nhân sự.</Text>
+          ) : (
+            visiblePeople.map((person, index) => (
+              <View key={`${person.name}-${index}`} style={styles.personRow}>
+                <Text style={styles.personName} numberOfLines={1}>
+                  {person.name}
+                </Text>
+                <Text style={styles.personDept} numberOfLines={1}>
+                  {person.department}
+                </Text>
+              </View>
+            ))
+          )
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
+  const data = parseAttendanceHeadcountMessage(body);
+  if (!data) return null;
+
+  return (
+    <View style={[styles.wrap, isMine ? styles.wrapMine : null]}>
+      <Text style={styles.title}>Báo cáo tình hình nhân sự Bảo Lâm</Text>
+
       {data.locations.length === 0 ? (
         <Text style={styles.empty}>Không có chấm công.</Text>
       ) : (
         data.locations.map((location) => (
-          <LocationTable
-            key={location.name}
-            location={location}
-            dateLabel={data.dateLabel}
-            departments={departments}
-            selectedDept={selectedDept}
-          />
+          <LocationBlock key={location.name} location={location} dateLabel={data.dateLabel} />
         ))
       )}
 
@@ -199,24 +188,33 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   location: {
-    marginHorizontal: 10,
-    marginTop: 8,
     borderWidth: 1,
     borderColor: '#475569',
     borderRadius: 8,
     overflow: 'hidden',
   },
-  locationTitle: {
-    backgroundColor: '#92400e99',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+  block: {
+    marginHorizontal: 10,
+    marginTop: 10,
+    gap: 8,
   },
-  locationTitleText: {
-    color: '#fff7ed',
-    fontSize: 12,
+  locationHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  locationHeadingText: {
+    flex: 1,
+    color: '#fde68a',
+    fontSize: 13,
     fontWeight: '800',
-    textAlign: 'center',
     textTransform: 'uppercase',
+  },
+  locationCount: {
+    color: '#fb7185',
+    fontSize: 13,
+    fontWeight: '800',
   },
   tableRow: {
     flexDirection: 'row',
