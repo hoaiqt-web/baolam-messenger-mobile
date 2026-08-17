@@ -109,14 +109,22 @@ export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
       <Text style={styles.title}>Báo cáo tình hình nhân sự Bảo Lâm</Text>
 
       {data.locations.length === 0 ? (
-        <Text style={styles.empty}>Không có chấm công.</Text>
+        <View style={[styles.location, styles.emptyBox]}>
+          <View style={styles.stackRow}>
+            <Text style={styles.cellMuted}>Ngày</Text>
+            <Text style={styles.dateText}>{data.dateLabel || '—'}</Text>
+          </View>
+          <Text style={styles.empty}>Không có chấm công.</Text>
+        </View>
       ) : (
         data.locations.map((location) => (
           <LocationBlock key={location.name} location={location} dateLabel={data.dateLabel} />
         ))
       )}
 
-      {data.note ? <Text style={styles.note}>{data.note}</Text> : null}
+      {data.note && !(data.locations.length === 0 && /không có chấm công/i.test(data.note)) ? (
+        <Text style={styles.note}>{data.note}</Text>
+      ) : null}
     </View>
   );
 }
@@ -281,11 +289,15 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 11,
   },
+  emptyBox: {
+    marginHorizontal: 10,
+    marginTop: 10,
+  },
   empty: {
     color: '#64748b',
     fontSize: 12,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   note: {
     color: '#94a3b8',
