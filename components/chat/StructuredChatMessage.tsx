@@ -7,6 +7,10 @@ import { PycvtMessageCard } from '@/components/chat/PycvtMessageCard';
 import { PoApprovalMessageCard } from '@/components/chat/PoApprovalMessageCard';
 import { PoApprovalResultMessageCard } from '@/components/chat/PoApprovalResultMessageCard';
 import { TvvtPriceUpdateMessageCard } from '@/components/chat/TvvtPriceUpdateMessageCard';
+import {
+  isPoCancelRequestMessage,
+  PoCancelRequestMessageCard,
+} from '@/components/chat/PoCancelRequestMessageCard';
 import { ErpTaskReportCard } from '@/components/chat/ErpTaskReportCard';
 import {
   ErpStructuredMessage,
@@ -61,6 +65,7 @@ export function isStructuredChatMessage(body: string | null | undefined): boolea
     isPycvtWarehouseMessage(text) ||
     isPoApprovalMessage(text) ||
     isPoApprovalResultMessage(text) ||
+    isPoCancelRequestMessage(text) ||
     isTvvtPriceUpdateMessage(text) ||
     isErpAssignmentMessage(text) ||
     isErpTaskReportBody(text) ||
@@ -163,6 +168,9 @@ export function StructuredChatMessage({
   }
   if (isTvvtPriceUpdateMessage(text)) {
     return <TvvtPriceUpdateMessageCard body={text} isMine={isMine} />;
+  }
+  if (isPoCancelRequestMessage(text)) {
+    return <PoCancelRequestMessageCard body={text} isMine={isMine} />;
   }
   if (isPoApprovalResultMessage(text)) {
     return <PoApprovalResultMessageCard body={text} isMine={isMine} />;

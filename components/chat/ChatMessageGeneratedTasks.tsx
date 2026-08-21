@@ -370,6 +370,165 @@ function QaqcTaskCard({
   );
 }
 
+function PoCancelTaskCard({
+  task,
+  currentUser,
+  onTaskUpdated,
+}: {
+  task: ChatGeneratedTask;
+  currentUser?: AuthUser | null;
+  onTaskUpdated?: () => void;
+}) {
+  const [loading, setLoading] = useState<string | null>(null);
+  const meta = taskMetadata(task);
+  const isDone = task.status === 'DONE';
+  const isRejected = task.status === 'REJECTED';
+  const poId = meta.po_id ?? task.source_ref_id ?? '…';
+  const title = String(meta.message_title ?? `YÊU CẦU HUỶ PO #${poId}`).replace(/\*\*|🚫/g, '').trim();
+  const authorized = isAuthorizedApprover(task, currentUser);
+
+  const runApprove = () => {
+    Alert.alert('Duyệt huỷ PO', `Duyệt huỷ PO #${poId}? PO sẽ chuyển CANCELLED.`, [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Duyệt huỷ',
+        style: 'destructive',
+        onPress: () => {
+          setLoading('DONE');
+          void chatApi
+            .transitionTask(task.id, 'DONE')
+            .then((res) => {
+              if (res.success) {
+                Alert.alert('Thành công', 'Đã duyệt huỷ PO.');
+                onTaskUpdated?.();
+              } else {
+                Alert.alert('Lỗi', res.message || res.error || 'Không duyệt được.');
+              }
+            })
+            .catch((e: unknown) => {
+              Alert.alert(
+                'Lỗi',
+                (e as { response?: { data?: { message?: string } } })?.response?.data?.message
+                  || (e as Error)?.message
+                  || 'Đã xảy ra lỗi',
+              );
+            })
+            .finally(() => setLoading(null));
+        },
+      },
+    ]);
+  };
+
+  const submitReject = (reason: string) => {
+    const note = reason.trim();
+    if (note.length < 3) {
+      Alert.alert('Lỗi', 'Lý do từ chối tối thiểu 3 ký tự.');
+      return;
+    }
+    setLoading('REJECT');
+    void chatApi
+      .transitionTask(task.id, 'REJECT', { reason: note })
+      .then((res) => {
+        if (res.success) {
+          Alert.alert('Thành công', 'Đã từ chối huỷ PO.');
+          onTaskUpdated?.();
+        } else {
+          Alert.alert('Lỗi', res.message || res.error || 'Không từ chối được.');
+        }
+      })
+      .catch((e: unknown) => {
+        Alert.alert(
+          'Lỗi',
+          (e as { response?: { data?: { message?: string } } })?.response?.data?.message
+            || (e as Error)?.message
+            || 'Đã xảy ra lỗi',
+        );
+      })
+      .finally(() => setLoading(null));
+  };
+
+  const runReject = () => {
+    if (typeof Alert.prompt === 'function') {
+      Alert.prompt(
+        'Từ chối huỷ PO',
+        `PO #${poId} — nhập lý do từ chối (tối thiểu 3 ký tự)`,
+        [
+          { text: 'Hủy', style: 'cancel' },
+          { text: 'Từ chối', onPress: (text?: string) => submitReject(String(text ?? '')) },
+        ],
+        'plain-text',
+      );
+      return;
+    }
+    Alert.alert('Từ chối huỷ PO', `Từ chối yêu cầu huỷ PO #${poId}?`, [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Từ chối',
+        onPress: () => submitReject('Từ chối huỷ PO qua Messenger'),
+      },
+    ]);
+  };
+
+  return (
+    <View style={[styles.taskCard, { backgroundColor: '#1a1208', borderColor: '#9a5b2a55' }]}>
+      <View style={styles.taskHeader}>
+        <View style={styles.taskTitleRow}>
+          <Ionicons name="ban-outline" size={16} color="#fb923c" />
+          <Text style={[styles.taskTitle, { color: '#fb923c' }]} numberOfLines={2}>
+            {title}
+          </Text>
+        </View>
+        {isDone ? (
+          <View style={[styles.badge, styles.badgeReject]}>
+            <Text style={styles.badgeRejectText}>ĐÃ HUỶ</Text>
+          </View>
+        ) : null}
+        {isRejected ? (
+          <View style={[styles.badge, styles.badgeDone]}>
+            <Text style={styles.badgeDoneText}>GIỮ PO</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {isDone || isRejected ? (
+        <View style={styles.taskStatusRow}>
+          <View style={[styles.statusDot, { backgroundColor: isDone ? '#f43f5e' : '#f59e0b' }]} />
+          <Text style={styles.taskStatusText}>
+            {isDone ? 'PO đã được huỷ (CANCELLED).' : 'Yêu cầu huỷ đã bị từ chối — PO giữ nguyên.'}
+          </Text>
+        </View>
+      ) : authorized ? (
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.actionReject, loading === 'DONE' && styles.actionDisabled]}
+            disabled={!!loading}
+            onPress={runApprove}
+          >
+            {loading === 'DONE' ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.actionBtnText}>Duyệt huỷ</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.actionApprove, loading === 'REJECT' && styles.actionDisabled]}
+            disabled={!!loading}
+            onPress={runReject}
+          >
+            {loading === 'REJECT' ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.actionBtnText}>Từ chối huỷ</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <Text style={styles.taskPendingText}>Chỉ CFO / CEO / Admin mới duyệt hoặc từ chối huỷ PO.</Text>
+      )}
+    </View>
+  );
+}
+
 export function ChatMessageGeneratedTasks({ tasks, currentUser, messageBody, onTaskUpdated }: Props) {
   const list = Array.isArray(tasks) ? tasks : [];
   if (!list.length) return null;
@@ -380,6 +539,16 @@ export function ChatMessageGeneratedTasks({ tasks, currentUser, messageBody, onT
         if (task.source_module === 'erp_po_approval') {
           return (
             <PoTaskCard
+              key={String(task.id)}
+              task={task}
+              currentUser={currentUser}
+              onTaskUpdated={onTaskUpdated}
+            />
+          );
+        }
+        if (task.source_module === 'erp_po_cancel_approval') {
+          return (
+            <PoCancelTaskCard
               key={String(task.id)}
               task={task}
               currentUser={currentUser}
