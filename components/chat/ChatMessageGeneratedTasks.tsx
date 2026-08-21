@@ -385,7 +385,8 @@ function PoCancelTaskCard({
   const isRejected = task.status === 'REJECTED';
   const poId = meta.po_id ?? task.source_ref_id ?? '…';
   const title = String(meta.message_title ?? `YÊU CẦU HUỶ PO #${poId}`).replace(/\*\*|🚫/g, '').trim();
-  const authorized = isAuthorizedApprover(task, currentUser);
+  const role = String(currentUser?.role_code ?? '').toUpperCase();
+  const authorized = role === 'CEO' || role === 'CFO';
 
   const runApprove = () => {
     Alert.alert('Duyệt huỷ PO', `Duyệt huỷ PO #${poId}? PO sẽ chuyển CANCELLED.`, [
@@ -523,7 +524,7 @@ function PoCancelTaskCard({
           </TouchableOpacity>
         </View>
       ) : (
-        <Text style={styles.taskPendingText}>Chỉ CFO / CEO / Admin mới duyệt hoặc từ chối huỷ PO.</Text>
+        <Text style={styles.taskPendingText}>Chỉ CFO / CEO mới duyệt hoặc từ chối huỷ PO.</Text>
       )}
     </View>
   );
