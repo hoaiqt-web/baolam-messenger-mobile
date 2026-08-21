@@ -16,6 +16,8 @@ type PoCancelMeta = {
   reason_label?: string;
   reason?: string;
   requested_at?: string;
+  resolved_by?: string;
+  resolved_at?: string;
 };
 
 function parseMeta(body: string): { displayBody: string; meta: PoCancelMeta | null } {
@@ -63,12 +65,17 @@ export function PoCancelRequestMessageCard({ body }: Props) {
       ? 'Từ chối huỷ PO'
       : 'Yêu cầu huỷ PO';
 
-  const badge = kind === 'approved' ? 'ĐÃ HUỶ' : kind === 'rejected' ? 'GIỮ PO' : 'CHỜ CFO';
+  const badge = kind === 'approved' ? 'ĐÃ HUỶ' : kind === 'rejected' ? 'TỪ CHỐI HUỶ' : 'CHỜ CFO';
+  const supplier = meta?.supplier_name || '';
+  const totalFmt = meta?.total_fmt || '—';
+  const header = supplier
+    ? `NCC: ${supplier.toUpperCase()} | ${totalFmt} | ${meta?.po_code || ''}`
+    : title;
 
   return (
     <View style={[styles.card, kind === 'approved' ? styles.approved : kind === 'rejected' ? styles.rejected : styles.request]}>
       <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.title}>{header}</Text>
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{badge}</Text>
         </View>
@@ -77,8 +84,10 @@ export function PoCancelRequestMessageCard({ body }: Props) {
         <>
           <Text style={styles.line}>Dự án: {[meta.project_code, meta.project_name].filter(Boolean).join(' — ')}</Text>
           <Text style={styles.line}>PO: {meta.po_code}{meta.po_id ? ` (#${meta.po_id})` : ''}</Text>
-          <Text style={styles.line}>NCC: {meta.supplier_name}</Text>
-          <Text style={styles.line}>Trị giá: {meta.total_fmt}</Text>
+          <Text style={styles.line}>NCC: {meta.supplier_name || '—'}</Text>
+          <Text style={styles.line}>Trị giá: {meta.total_fmt || '—'}</Text>
+          {meta.requested_by ? <Text style={styles.line}>PKH: {meta.requested_by}{meta.requested_at ? ` · ${meta.requested_at}` : ''}</Text> : null}
+          {meta.resolved_by ? <Text style={styles.line}>CFO: {meta.resolved_by}{meta.resolved_at ? ` · ${meta.resolved_at}` : ''}</Text> : null}
           {meta.reason ? <Text style={styles.reason}>{meta.reason_label || 'Lý do'}: {meta.reason}</Text> : null}
         </>
       ) : (
