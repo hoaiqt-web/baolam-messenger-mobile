@@ -1,6 +1,7 @@
 export type AttendanceHeadcountPerson = {
   name: string;
   department: string;
+  intervals: string;
 };
 
 export type AttendanceHeadcountLocation = {
@@ -80,10 +81,11 @@ export function parseAttendanceHeadcountMessage(
 
     if (trimmed.startsWith('-') && current) {
       const raw = trimmed.replace(/^-+\s*/, '');
-      const sep = raw.indexOf('|');
-      const name = (sep >= 0 ? raw.slice(0, sep) : raw).trim();
-      const department = (sep >= 0 ? raw.slice(sep + 1) : '').trim() || '—';
-      if (name) current.people.push({ name, department });
+      const parts = raw.split('|').map((part) => part.trim());
+      const name = parts[0] ?? '';
+      const department = parts[1] || '—';
+      const intervals = parts.slice(2).join(' | ');
+      if (name) current.people.push({ name, department, intervals });
     }
   }
 
