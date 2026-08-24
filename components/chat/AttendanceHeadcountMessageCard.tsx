@@ -90,7 +90,9 @@ function LocationBlock({
             visiblePeople.map((person, index) => (
               <View key={`${person.name}-${index}`} style={styles.personRow}>
                 <Text style={styles.personName}>{person.name}</Text>
-                <Text style={styles.personDept}>{person.department}</Text>
+                <Text style={person.intervals ? styles.personTimes : styles.personDept}>
+                  {person.intervals || person.department}
+                </Text>
               </View>
             ))
           )}
@@ -288,6 +290,13 @@ const styles = StyleSheet.create({
   personDept: {
     color: '#64748b',
     fontSize: 11,
+  },
+  personTimes: {
+    maxWidth: '58%',
+    color: '#6ee7b7',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'right',
   },
   emptyBox: {
     marginHorizontal: 10,
