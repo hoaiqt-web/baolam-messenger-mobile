@@ -2,6 +2,7 @@ import { stripPycvtMeta } from '@/features/chat/pycvtParsers';
 import { isStructuredChatMessage } from '@/components/chat/StructuredChatMessage';
 import { getTaskVerificationPreview } from '@/features/chat/taskVerificationParsers';
 import { getBugOutstandingDigestPreview } from '@/features/chat/bugOutstandingDigestParsers';
+import { getPendingReceiptDigestPreview } from '@/features/chat/pendingReceiptDigestParsers';
 
 const PO_META_START = '[[PO_UI_META]]';
 const PO_META_END = '[[/PO_UI_META]]';
@@ -21,6 +22,9 @@ export function getChatMessagePreview(body: string | null | undefined, maxLen = 
 
   const digestPreview = getBugOutstandingDigestPreview(raw);
   if (digestPreview) return digestPreview;
+
+  const pendingReceiptPreview = getPendingReceiptDigestPreview(raw);
+  if (pendingReceiptPreview) return pendingReceiptPreview;
 
   const verificationPreview = getTaskVerificationPreview(raw);
   if (verificationPreview) return verificationPreview;

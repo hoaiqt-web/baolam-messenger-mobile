@@ -50,11 +50,14 @@ import {
 import { env } from '@/shared/config/env';
 import { getTaskVerificationPreview } from '@/features/chat/taskVerificationParsers';
 import { getBugOutstandingDigestPreview } from '@/features/chat/bugOutstandingDigestParsers';
+import { getPendingReceiptDigestPreview } from '@/features/chat/pendingReceiptDigestParsers';
 import { normalizeReplyAttachmentsFromApi } from '@/widgets/chat-layout/chatLayoutHelpers';
 function conversationListPreviewBody(message: ChatMessage): string {
   const trimmed = (message.body ?? '').trim();
   const digestPreview = getBugOutstandingDigestPreview(trimmed);
   if (digestPreview) return digestPreview;
+  const pendingReceiptPreview = getPendingReceiptDigestPreview(trimmed);
+  if (pendingReceiptPreview) return pendingReceiptPreview;
   const verificationPreview = getTaskVerificationPreview(trimmed);
   if (verificationPreview) return verificationPreview;
   if (trimmed) return trimmed;
