@@ -1459,13 +1459,75 @@ export function useChatRoomController(): UseChatRoomState {
           },
         );
       },
+      ({ message }) => {
+        const normalizedMessage = normalizeMessage(message as ChatMessage);
+        const normalizedConversationId = Number(
+          normalizedMessage.conversationId,
+        );
+
+        updateLatestMessagesPage(normalizedConversationId, (page) => {
+          const previousMessages = page.messages ?? [];
+          const hasMessage = previousMessages.some(
+            (item) => item.id === normalizedMessage.id,
+          );
+          if (!hasMessage) {
+            return page;
+          }
+
+          return {
+            messages: previousMessages.map((item) =>
+              item.id === normalizedMessage.id
+                ? { ...normalizedMessage, status: 'sent' as const }
+                : item,
+            ),
+            hasMore: page.hasMore,
+          };
+        });
+
+        if (activeConversationIdRef.current === normalizedConversationId) {
+          updateMessageAcrossLoadedPages(
+            normalizedConversationId,
+            normalizedMessage.id,
+            (item) => ({
+              ...item,
+              ...normalizedMessage,
+              status: item.status ?? 'sent',
+            }),
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ['chat', 'messages', normalizedConversationId],
+          });
+        } else {
+          void queryClient.invalidateQueries({
+            queryKey: ['chat', 'messages', normalizedConversationId],
+          });
+        }
+
+        queryClient.setQueryData<{ conversations: ChatConversation[] }>(
+          ['chat', 'conversations'],
+          (prev) => ({
+            conversations: (prev?.conversations ?? []).map((conversation) =>
+              conversation.id !== normalizedConversationId ||
+              conversation.latestMessage?.id !== normalizedMessage.id
+                ? conversation
+                : {
+                    ...conversation,
+                    latestMessage: {
+                      ...conversation.latestMessage!,
+                      body: conversationListPreviewBody(normalizedMessage),
+                    },
+                  },
+            ),
+          }),
+        );
+      },
     );
     // Intentionally only depends on the user identity + stable helpers.
     // activeConversationId and notificationsEnabled are read from refs so that
     // switching rooms or toggling notifications does NOT tear down and rebuild
     // the inbox subscription (which would briefly miss realtime events during
     // the re-subscribe auth round-trip).
-  }, [compareMessageOrder, currentUser, normalizeMessage, queryClient]);
+  }, [compareMessageOrder, currentUser, normalizeMessage, queryClient, updateMessageAcrossLoadedPages]);
 
   const toggleNotifications = useCallback(async () => {
     if (notificationsEnabled) {

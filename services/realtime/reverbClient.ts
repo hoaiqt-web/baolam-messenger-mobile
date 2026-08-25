@@ -475,6 +475,7 @@ export function subscribeUserInboxMessages(
   onConversationCreated?: (payload: ReverbConversationCreatedPayload) => void,
   onConversationUpdated?: (payload: ReverbConversationCreatedPayload) => void,
   onConversationDeleted?: (payload: ReverbConversationDeletedPayload) => void,
+  onMessageUpdated?: (payload: ReverbMessageEventPayload) => void,
 ): () => void {
   const echo = getEchoClient();
   if (!echo) {
@@ -488,6 +489,16 @@ export function subscribeUserInboxMessages(
     onMessage(payload);
   };
   channel.listen('.message.sent', onMessageWithHeartbeat);
+  let onMessageUpdatedWithHeartbeat:
+    | ((payload: ReverbMessageEventPayload) => void)
+    | undefined;
+  if (onMessageUpdated) {
+    onMessageUpdatedWithHeartbeat = (payload: ReverbMessageEventPayload) => {
+      markRealtimeInboundActivity();
+      onMessageUpdated(payload);
+    };
+    channel.listen('.message.updated', onMessageUpdatedWithHeartbeat);
+  }
   let onConversationCreatedWithHeartbeat:
     | ((payload: ReverbConversationCreatedPayload) => void)
     | undefined;
@@ -525,6 +536,9 @@ export function subscribeUserInboxMessages(
 
   return () => {
     channel.stopListening('.message.sent', onMessageWithHeartbeat);
+    if (onMessageUpdatedWithHeartbeat) {
+      channel.stopListening('.message.updated', onMessageUpdatedWithHeartbeat);
+    }
     if (onConversationCreatedWithHeartbeat) {
       channel.stopListening(
         '.conversation.created',
