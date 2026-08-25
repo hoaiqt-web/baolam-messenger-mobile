@@ -412,31 +412,6 @@ export function useChatRoomController(): UseChatRoomState {
     shouldPoll: shouldPollChatQueries,
   });
 
-  // Card headcount: backend cron cập nhật body mỗi 15p; poll khi mở nhóm chấm công
-  // để UI không phụ thuộc message.updated websocket.
-  useEffect(() => {
-    if (!hasActiveConversation || !activeConversationId || !isDocumentVisible) {
-      return;
-    }
-    if (activeConversation?.name !== 'Nhóm chấm công tổ đội') {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      void queryClient.invalidateQueries({
-        queryKey: ['chat', 'messages', activeConversationId],
-      });
-    }, 120_000);
-
-    return () => clearInterval(timer);
-  }, [
-    activeConversation?.name,
-    activeConversationId,
-    hasActiveConversation,
-    isDocumentVisible,
-    queryClient,
-  ]);
-
   const messages = useMemo(
     () =>
       (messagesQuery.data?.pages ?? [])
