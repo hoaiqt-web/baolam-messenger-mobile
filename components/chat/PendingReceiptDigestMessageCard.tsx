@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import {
   parsePendingReceiptDigestMessage,
   type PendingReceiptRole,
@@ -9,10 +9,10 @@ type Props = {
   isMine: boolean;
 };
 
-const ROLE_COLORS: Record<PendingReceiptRole, string> = {
-  CHT: '#fcd34d',
-  CBKT: '#7dd3fc',
-  QLPX: '#6ee7b7',
+const ROLE_COLORS: Record<PendingReceiptRole, { bg: string; text: string; border: string }> = {
+  CHT: { bg: '#f59e0b22', text: '#fcd34d', border: '#f59e0b55' },
+  CBKT: { bg: '#38bdf822', text: '#7dd3fc', border: '#38bdf855' },
+  QLPX: { bg: '#34d39922', text: '#6ee7b7', border: '#34d39955' },
 };
 
 export function PendingReceiptDigestMessageCard({ body, isMine }: Props) {
@@ -35,26 +35,60 @@ export function PendingReceiptDigestMessageCard({ body, isMine }: Props) {
       {data.projects.length === 0 ? (
         <Text style={styles.empty}>Không có phiếu vật tư chờ nhận.</Text>
       ) : (
-        <View style={styles.list}>
-          {data.projects.map((project, index) => (
-            <View key={`${project.projectCode}-${index}`} style={styles.projectBlock}>
-              <Text style={styles.projectTitle}>
-                {index + 1}. Dự án: {project.projectCode}
-                {project.projectName ? ` — ${project.projectName}` : ''}
-              </Text>
-              {project.rows.map((row, rowIndex) => (
-                <Text
-                  key={`${row.role}-${row.personName}-${rowIndex}`}
-                  style={styles.personLine}
-                >
-                  <Text style={[styles.role, { color: ROLE_COLORS[row.role] }]}>{row.role}</Text>
-                  {` ${row.personName} — `}
-                  <Text style={styles.count}>{row.count} phiếu</Text>
-                </Text>
-              ))}
+        <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator={false}>
+          <View style={styles.table}>
+            <View style={styles.thead}>
+              <Text style={[styles.th, styles.colProject]}>Dự án</Text>
+              <Text style={[styles.th, styles.colPerson]}>Người nhận</Text>
+              <Text style={[styles.th, styles.colCount]}>Phiếu</Text>
             </View>
-          ))}
-        </View>
+            {data.projects.flatMap((project, projectIndex) =>
+              project.rows.map((row, rowIndex) => {
+                const colors = ROLE_COLORS[row.role];
+                return (
+                  <View
+                    key={`${project.projectCode}-${row.role}-${row.personName}-${rowIndex}`}
+                    style={styles.tr}
+                  >
+                    <View style={styles.colProject}>
+                      {rowIndex === 0 ? (
+                        <>
+                          <Text style={styles.projectCode}>
+                            {projectIndex + 1}. {project.projectCode}
+                          </Text>
+                          {project.projectName ? (
+                            <Text style={styles.projectName} numberOfLines={2}>
+                              {project.projectName}
+                            </Text>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </View>
+                    <View style={styles.colPerson}>
+                      <View
+                        style={[
+                          styles.roleBadge,
+                          { backgroundColor: colors.bg, borderColor: colors.border },
+                        ]}
+                      >
+                        <Text style={[styles.roleText, { color: colors.text }]}>{row.role}</Text>
+                      </View>
+                      <Text style={styles.personName}>{row.personName}</Text>
+                    </View>
+                    <Text style={[styles.count, styles.colCount]}>{row.count}</Text>
+                  </View>
+                );
+              }),
+            )}
+            <View style={styles.tfoot}>
+              <Text style={[styles.footLabel, styles.colProject]}>Tổng</Text>
+              <Text style={[styles.footLabel, styles.colPerson]}>
+                {data.people} người · {data.projects.length} dự án
+              </Text>
+              <Text style={[styles.footCount, styles.colCount]}>{data.total}</Text>
+            </View>
+          </View>
+        </ScrollView>
       )}
 
       {data.footer ? <Text style={styles.footer}>{data.footer}</Text> : null}
@@ -114,31 +148,86 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 13,
   },
-  list: {
+  table: {
+    minWidth: 340,
+    paddingBottom: 4,
+  },
+  thead: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 10,
+    paddingVertical: 6,
+    backgroundColor: '#0f172a',
   },
-  projectBlock: {
-    gap: 2,
+  th: {
+    color: '#94a3b8',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
-  projectTitle: {
+  tr: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#1e293b',
+  },
+  colProject: { width: 132, paddingRight: 8 },
+  colPerson: { flex: 1, paddingRight: 8 },
+  colCount: { width: 44, textAlign: 'right' },
+  projectCode: {
     color: '#f1f5f9',
     fontSize: 12,
     fontWeight: '700',
-    lineHeight: 18,
   },
-  personLine: {
+  projectName: {
+    marginTop: 2,
+    color: '#94a3b8',
+    fontSize: 11,
+  },
+  roleBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginBottom: 4,
+  },
+  roleText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  personName: {
     color: '#e2e8f0',
     fontSize: 12,
-    lineHeight: 18,
-  },
-  role: {
-    fontWeight: '800',
+    fontWeight: '500',
   },
   count: {
     color: '#fde68a',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  tfoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#475569',
+    backgroundColor: '#451a0328',
+  },
+  footLabel: {
+    color: '#cbd5e1',
+    fontSize: 11,
     fontWeight: '700',
+  },
+  footCount: {
+    color: '#fde68a',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'right',
   },
   footer: {
     borderTopWidth: 1,
