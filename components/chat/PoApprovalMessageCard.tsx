@@ -28,6 +28,7 @@ type Props = {
 /** Flex weights — tổng luôn = 100% khung card, không cần scroll ngang. */
 const TIMELINE_FLEX = { role: 0.72, person: 2, time: 0.62, date: 0.66 } as const;
 const ITEMS_FLEX = { stt: 0.4, mat: 1.9, need: 0.7, unit: 0.55, price: 0.9, total: 1.0, wbs: 1.1 } as const;
+const REPAIR_FLEX = { stt: 0.35, device: 1.4, qty: 0.55, condition: 1.1, content: 1.2, price: 0.85 } as const;
 
 function poTaskState(tasks?: ChatGeneratedTask[]) {
   const poTask = (tasks ?? []).find((t) => t.source_module === 'erp_po_approval');
@@ -128,6 +129,101 @@ function PoStatusBadge({ item }: { item: PoUiItem }) {
   return (
     <View style={styles.badgeOk}>
       <Text style={styles.badgeOkText}>✓ Trong KH</Text>
+    </View>
+  );
+}
+
+function PoRepairItemsTable({ items, palette }: { items: PoUiItem[]; palette: ErpCardPalette }) {
+  const grandTotal = items.reduce((acc, item) => acc + (item.total_price || 0), 0);
+
+  return (
+    <View style={[styles.table, { borderColor: '#8f664888', width: '100%' }]}>
+      <View
+        style={[
+          styles.tableHead,
+          {
+            backgroundColor: '#2a1808',
+            borderBottomWidth: 1,
+            borderBottomColor: '#8f664888',
+          },
+        ]}
+      >
+        <ErpTableCell flex={REPAIR_FLEX.stt} palette={palette} head align="center">
+          STT
+        </ErpTableCell>
+        <ErpTableCell flex={REPAIR_FLEX.device} palette={palette} head textStyle={{ color: '#fdba74' }}>
+          THIẾT BỊ
+        </ErpTableCell>
+        <ErpTableCell flex={REPAIR_FLEX.qty} palette={palette} head align="right" nowrap>
+          SL
+        </ErpTableCell>
+        <ErpTableCell flex={REPAIR_FLEX.condition} palette={palette} head>
+          T.TRẠNG
+        </ErpTableCell>
+        <ErpTableCell flex={REPAIR_FLEX.content} palette={palette} head>
+          N.DUNG SỬA
+        </ErpTableCell>
+        <ErpTableCell flex={REPAIR_FLEX.price} palette={palette} head align="right" last nowrap>
+          Đ.GIÁ
+        </ErpTableCell>
+      </View>
+      {items.map((item) => (
+        <View
+          key={item.stt}
+          style={[styles.tableRow, { borderTopWidth: 1, borderTopColor: '#8f664866' }]}
+        >
+          <ErpTableCell flex={REPAIR_FLEX.stt} palette={palette} align="center">
+            {item.stt}
+          </ErpTableCell>
+          <ErpTableCell flex={REPAIR_FLEX.device} palette={palette} textStyle={{ fontWeight: '600' }}>
+            {item.material_name}
+          </ErpTableCell>
+          <ErpTableCell
+            flex={REPAIR_FLEX.qty}
+            palette={palette}
+            align="right"
+            nowrap
+            textStyle={{ fontVariant: ['tabular-nums'], fontWeight: '700' }}
+          >
+            {formatNumberVi(item.quantity)}
+            {(item.unit || '').trim() ? ` ${item.unit}` : ''}
+          </ErpTableCell>
+          <ErpTableCell
+            flex={REPAIR_FLEX.condition}
+            palette={palette}
+            textStyle={{ color: '#fdba74', fontStyle: 'italic' }}
+          >
+            {(item.condition_note || '').trim() || '—'}
+          </ErpTableCell>
+          <ErpTableCell flex={REPAIR_FLEX.content} palette={palette}>
+            {(item.repair_content || '').trim() || '—'}
+          </ErpTableCell>
+          <ErpTableCell
+            flex={REPAIR_FLEX.price}
+            palette={palette}
+            align="right"
+            last
+            nowrap
+            textStyle={{ fontVariant: ['tabular-nums'], fontWeight: '700', color: '#fbbf24' }}
+          >
+            {formatNumberVi(item.unit_price)}
+          </ErpTableCell>
+        </View>
+      ))}
+      <View style={[styles.tableFoot, { backgroundColor: '#1a0f06', borderTopColor: '#8f664888' }]}>
+        <View style={{ flex: REPAIR_FLEX.stt + REPAIR_FLEX.device + REPAIR_FLEX.qty + REPAIR_FLEX.condition + REPAIR_FLEX.content }} />
+        <View style={[styles.tableFootLabelCol, { flex: REPAIR_FLEX.price }]}>
+          <Text style={[styles.footLabel, { color: '#fbbf24' }]}>Tổng</Text>
+          <Text
+            style={[styles.footValue, { color: '#fbbf24', textAlign: 'right' }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            {formatNumberVi(grandTotal)} đ
+          </Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -268,7 +364,8 @@ function PoItemsTable({
 export function PoApprovalMessageCard({ body, isMine, isDark, generatedTasks }: Props) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const data = parsePoApprovalCardData(body);
-  const variant = data.isVehicle ? 'blue' : 'emerald';
+  const isRepair = 'isRepair' in data && data.isRepair;
+  const variant = data.isVehicle ? 'blue' : isRepair ? 'orange' : 'emerald';
   const palette = getErpMessengerCardPalette(isMine, variant);
   const { isDone, isRejected } = poTaskState(generatedTasks);
 
@@ -276,10 +373,11 @@ export function PoApprovalMessageCard({ body, isMine, isDark, generatedTasks }: 
     const { meta } = data;
     const itemsDesc = ('itemsDesc' in data ? data.itemsDesc : (meta.items_desc || '')).trim();
     const supplierNote = ('supplierNote' in data ? data.supplierNote : (meta.notes || '')).trim();
+    const headerEmoji = data.isVehicle ? '🚚' : isRepair ? '🔧' : '🏛️';
     return (
       <View style={[styles.card, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
         <View style={[styles.cardHeader, { borderBottomWidth: 1, borderBottomColor: palette.tableBorder }]}>
-          <Text style={styles.headerEmoji}>{data.isVehicle ? '🚚' : '🏛️'}</Text>
+          <Text style={styles.headerEmoji}>{headerEmoji}</Text>
           <View style={styles.headerTextWrap}>
             <View style={styles.headerTitleRow}>
               <Text style={[styles.headerTitle, { color: palette.text, flex: 1 }]}>{data.headerTitle}</Text>
@@ -297,6 +395,12 @@ export function PoApprovalMessageCard({ body, isMine, isDark, generatedTasks }: 
             {data.projectLabel ? (
               <Text style={[styles.headerSub, { color: palette.textMuted }]}>{data.projectLabel}</Text>
             ) : null}
+            {isRepair && meta.request_code ? (
+              <Text style={[styles.headerSub, { color: '#fdba74', marginTop: 2 }]}>
+                Mã YC: {meta.request_code}
+                {meta.repair_type ? ` · ${meta.repair_type}` : ''}
+              </Text>
+            ) : null}
           </View>
         </View>
 
@@ -305,7 +409,7 @@ export function PoApprovalMessageCard({ body, isMine, isDark, generatedTasks }: 
             <PoTimelineTable rows={meta.timeline} palette={palette} />
           ) : null}
 
-          {meta.tpkh_note ? (
+          {meta.tpkh_note && !isRepair ? (
             <View style={[styles.noteEmerald, { borderColor: palette.innerBorder }]}>
               <Text style={styles.noteEmeraldTitle}>📝 Ghi chú PKH:</Text>
               <Text style={styles.noteEmeraldBody}>{meta.tpkh_note}</Text>
@@ -332,15 +436,23 @@ export function PoApprovalMessageCard({ body, isMine, isDark, generatedTasks }: 
                 style={[styles.collapseBtn, { borderColor: palette.innerBorder, backgroundColor: palette.tableHeadBg }]}
                 onPress={() => setDetailsOpen((o) => !o)}
               >
-                <Text style={[styles.collapseTitle, { color: palette.text }]}>📦 Chi tiết vật tư</Text>
+                <Text style={[styles.collapseTitle, { color: palette.text }]}>
+                  {isRepair ? '🔧 Chi tiết sửa chữa thiết bị' : '📦 Chi tiết vật tư'}
+                </Text>
                 <View style={styles.collapseRight}>
-                  <Text style={styles.collapseCount}>{formatVnd(meta.total_vnd || 0)}</Text>
+                  <Text style={[styles.collapseCount, isRepair ? { color: '#fdba74' } : undefined]}>
+                    {formatVnd(meta.total_vnd || 0)}
+                  </Text>
                   <Ionicons name={detailsOpen ? 'chevron-up' : 'chevron-down'} size={16} color={palette.textMuted} />
                 </View>
               </TouchableOpacity>
               {detailsOpen ? (
                 <View style={{ marginTop: 8 }}>
-                  <PoItemsTable items={meta.items} showWbsColumn={data.showWbsColumn} palette={palette} />
+                  {isRepair ? (
+                    <PoRepairItemsTable items={meta.items} palette={palette} />
+                  ) : (
+                    <PoItemsTable items={meta.items} showWbsColumn={data.showWbsColumn} palette={palette} />
+                  )}
                 </View>
               ) : null}
             </View>
@@ -350,7 +462,11 @@ export function PoApprovalMessageCard({ body, isMine, isDark, generatedTasks }: 
             <View style={styles.approvedNoteRow}>
               <View style={styles.approvedDot} />
               <Text style={styles.approvedNoteText}>
-                {data.isVehicle ? 'Chi phí đã được phê duyệt.' : 'Đơn hàng đã được phê duyệt.'}
+                {data.isVehicle
+                  ? 'Chi phí đã được phê duyệt.'
+                  : isRepair
+                    ? 'PO sửa chữa đã được phê duyệt.'
+                    : 'Đơn hàng đã được phê duyệt.'}
               </Text>
             </View>
           ) : isRejected ? (
@@ -365,7 +481,9 @@ export function PoApprovalMessageCard({ body, isMine, isDark, generatedTasks }: 
                 { color: palette.textMuted, borderTopWidth: 1, borderTopColor: palette.tableBorder },
               ]}
             >
-              👉 CEO/CFO vui lòng Duyệt hoặc Từ chối trong tab Nhiệm vụ.
+              {isRepair
+                ? '👉 CEO/CFO vui lòng Duyệt hoặc Từ chối PO sửa chữa thiết bị trong tab Nhiệm vụ.'
+                : '👉 CEO/CFO vui lòng Duyệt hoặc Từ chối trong tab Nhiệm vụ.'}
             </Text>
           )}
         </View>
