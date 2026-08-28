@@ -53,8 +53,8 @@ function LocationBlock({ location }: { location: AttendanceHeadcountLocation }) 
             <>
               <View style={styles.personHeaderRow}>
                 <Text style={[styles.personHeaderCell, styles.personNameHeader]}>Tên</Text>
-                <Text style={styles.personHeaderCell}>Bắt đầu</Text>
-                <Text style={styles.personHeaderCell}>Kết thúc</Text>
+                <Text style={styles.personHeaderCell}>Giờ vào</Text>
+                <Text style={styles.personHeaderCell}>Giờ ra</Text>
               </View>
               {location.people.map((person, index) => {
                 const { start, end } = parseTimeInterval(person.intervals);
