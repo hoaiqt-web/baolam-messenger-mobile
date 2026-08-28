@@ -115,3 +115,26 @@ export function countByDepartment(people: AttendanceHeadcountPerson[]): Record<s
   }
   return map;
 }
+
+export function parseTimeInterval(intervals: string): { start: string; end: string } {
+  const text = intervals.trim();
+  if (!text) return { start: '', end: '' };
+
+  const starts: string[] = [];
+  const ends: string[] = [];
+
+  for (const part of text.split(',').map((segment) => segment.trim()).filter(Boolean)) {
+    const dashIndex = part.indexOf('-');
+    if (dashIndex > 0) {
+      starts.push(part.slice(0, dashIndex).trim());
+      ends.push(part.slice(dashIndex + 1).trim());
+      continue;
+    }
+    starts.push(part);
+  }
+
+  return {
+    start: starts.join(', '),
+    end: ends.join(', '),
+  };
+}

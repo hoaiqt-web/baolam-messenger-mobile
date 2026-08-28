@@ -4,6 +4,7 @@ import {
   collectDepartments,
   countByDepartment,
   parseAttendanceHeadcountMessage,
+  parseTimeInterval,
   type AttendanceHeadcountLocation,
 } from '@/features/chat/attendanceHeadcountParsers';
 
@@ -12,23 +13,11 @@ type Props = {
   isMine: boolean;
 };
 
-function LocationBlock({
-  location,
-  dateLabel,
-}: {
-  location: AttendanceHeadcountLocation;
-  dateLabel: string;
-}) {
+function LocationBlock({ location }: { location: AttendanceHeadcountLocation }) {
   const [open, setOpen] = useState(false);
-  const [selectedDept, setSelectedDept] = useState<string | null>(null);
   const departments = collectDepartments([location]);
   const counts = countByDepartment(location.people);
-  const visibleDepts = selectedDept ? departments.filter((dept) => dept === selectedDept) : departments;
-  const visiblePeople = selectedDept
-    ? location.people.filter((person) => person.department === selectedDept)
-    : location.people;
-  const showTotal = selectedDept === null;
-  const rowTotal = visiblePeople.length;
+  const rowTotal = location.people.length;
 
   return (
     <View style={styles.block}>
@@ -40,61 +29,48 @@ function LocationBlock({
         <Text style={styles.locationCount}>{open ? 'thu gọn' : 'xem tên'} {location.count}</Text>
       </TouchableOpacity>
 
-      {departments.length > 0 ? (
-        <View style={styles.chipWrap}>
-          <TouchableOpacity
-            onPress={() => setSelectedDept(null)}
-            style={[styles.chip, selectedDept === null ? styles.chipOn : null]}
-          >
-            <Text style={[styles.chipText, selectedDept === null ? styles.chipTextOn : null]}>Tất cả</Text>
-          </TouchableOpacity>
-          {departments.map((dept) => (
-            <TouchableOpacity
-              key={dept}
-              onPress={() => setSelectedDept((current) => (current === dept ? null : dept))}
-              style={[styles.chip, selectedDept === dept ? styles.chipOn : null]}
-            >
-              <Text style={[styles.chipText, selectedDept === dept ? styles.chipTextOn : null]}>{dept}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      ) : null}
-
       <View style={styles.location}>
-        <View style={styles.stackRow}>
-          <Text style={styles.cellMuted}>Ngày</Text>
-          <Text style={styles.dateText}>{dateLabel || '—'}</Text>
-        </View>
-        {visibleDepts.map((dept) => (
+        {departments.map((dept) => (
           <View key={dept} style={styles.stackRow}>
             <Text style={styles.stackDept}>{dept}</Text>
             <Text style={styles.countText}>{counts[dept] ?? 0}</Text>
           </View>
         ))}
-        {showTotal ? (
-          <View style={[styles.stackRow, styles.stackTotal]}>
-            <Text style={styles.totalHead}>Tổng</Text>
-            <Text style={styles.totalText}>{rowTotal}</Text>
-          </View>
-        ) : null}
+        <View style={[styles.stackRow, styles.stackTotal]}>
+          <Text style={styles.totalHead}>Tổng</Text>
+          <Text style={styles.totalText}>{rowTotal}</Text>
+        </View>
       </View>
 
       {open ? (
         <View style={styles.peopleBox}>
           <Text style={styles.peopleHeading}>
-            Danh sách nhân sự · {visiblePeople.length}
+            Danh sách nhân sự · {location.people.length}
           </Text>
-          {visiblePeople.length === 0 ? (
+          {location.people.length === 0 ? (
             <Text style={styles.empty}>Không có nhân sự.</Text>
           ) : (
-            visiblePeople.map((person, index) => (
-              <View key={`${person.name}-${index}`} style={styles.personRow}>
-                <Text style={styles.personName}>{person.name}</Text>
-                <Text style={person.intervals ? styles.personTimes : styles.personDept}>
-                  {person.intervals || person.department}
-                </Text>
+            <>
+              <View style={styles.personHeaderRow}>
+                <Text style={[styles.personHeaderCell, styles.personNameHeader]}>Tên</Text>
+                <Text style={styles.personHeaderCell}>Bắt đầu</Text>
+                <Text style={styles.personHeaderCell}>Kết thúc</Text>
               </View>
-            ))
+              {location.people.map((person, index) => {
+                const { start, end } = parseTimeInterval(person.intervals);
+                return (
+                  <View key={`${person.name}-${index}`} style={styles.personRow}>
+                    <Text style={styles.personName}>{person.name}</Text>
+                    <Text style={start || person.intervals ? styles.personTimes : styles.personDept}>
+                      {start || (person.intervals ? '—' : person.department)}
+                    </Text>
+                    <Text style={end || person.intervals ? styles.personTimes : styles.personDept}>
+                      {end || (person.intervals ? '—' : '')}
+                    </Text>
+                  </View>
+                );
+              })}
+            </>
           )}
         </View>
       ) : null}
@@ -108,19 +84,18 @@ export function AttendanceHeadcountMessageCard({ body, isMine }: Props) {
 
   return (
     <View style={[styles.wrap, isMine ? styles.wrapMine : null]}>
-      <Text style={styles.title}>Báo cáo tình hình nhân sự Bảo Lâm</Text>
+      <Text style={styles.title}>
+        Báo cáo tình hình nhân sự Bảo Lâm
+        {data.dateLabel ? <Text style={styles.titleDate}> · {data.dateLabel}</Text> : null}
+      </Text>
 
       {data.locations.length === 0 ? (
         <View style={[styles.location, styles.emptyBox]}>
-          <View style={styles.stackRow}>
-            <Text style={styles.cellMuted}>Ngày</Text>
-            <Text style={styles.dateText}>{data.dateLabel || '—'}</Text>
-          </View>
           <Text style={styles.empty}>Không có chấm công.</Text>
         </View>
       ) : (
         data.locations.map((location) => (
-          <LocationBlock key={location.name} location={location} dateLabel={data.dateLabel} />
+          <LocationBlock key={location.name} location={location} />
         ))
       )}
 
@@ -156,28 +131,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     lineHeight: 16,
   },
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  chip: {
-    backgroundColor: '#1e293b',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    maxWidth: '100%',
-  },
-  chipOn: {
-    backgroundColor: '#059669',
-  },
-  chipText: {
-    color: '#cbd5e1',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  chipTextOn: {
-    color: '#fff',
+  titleDate: {
+    color: '#fb7185',
   },
   location: {
     borderWidth: 1,
@@ -246,16 +201,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  cellMuted: {
-    color: '#94a3b8',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  dateText: {
-    color: '#fb7185',
-    fontSize: 12,
-    fontWeight: '800',
-  },
   totalHead: {
     color: '#fecdd3',
     fontSize: 12,
@@ -271,11 +216,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  personHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#064e3b44',
+  },
+  personHeaderCell: {
+    width: 52,
+    color: '#64748b',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    textAlign: 'right',
+  },
+  personNameHeader: {
+    flex: 1,
+    width: undefined,
+    textAlign: 'left',
+  },
   personRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderTopWidth: 1,
@@ -288,11 +254,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   personDept: {
+    width: 52,
     color: '#64748b',
     fontSize: 11,
+    textAlign: 'right',
   },
   personTimes: {
-    maxWidth: '58%',
+    width: 52,
     color: '#6ee7b7',
     fontSize: 11,
     fontWeight: '700',
