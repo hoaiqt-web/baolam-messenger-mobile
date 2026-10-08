@@ -59,8 +59,9 @@ function CardShell({
 function QlpxNewCard({ body, isMine, isDark, onImagePress }: Props) {
   const data = parseQlpxNewReport(body);
   const palette = getErpMessengerCardPalette(isMine, 'cyan');
+  const qaqc = body.match(/BÁO CÁO QAQC MỚI\s*—\s*([^*\n]+)/)?.[1]?.trim();
   return (
-    <CardShell icon="🏭" title="Báo cáo QLPX" isMine={isMine} isDark={isDark} variant="cyan">
+    <CardShell icon="🏭" title={qaqc ? 'Báo cáo QAQC' : 'Báo cáo QLPX'} subtitle={qaqc} isMine={isMine} isDark={isDark} variant="cyan">
       <ErpCardField label="1 - Dự án" value={data.project} palette={palette} valueBold />
       {data.treeLines.length > 0 ? (
         <View style={[styles.treeBox, { borderColor: palette.tableBorder }]}>
